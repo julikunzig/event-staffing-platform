@@ -1,0 +1,254 @@
+@startuml Event Staffing Platform - MER
+!theme plain
+skinparam linetype ortho
+skinparam entity {
+  BackgroundColor #F8F9FA
+  BorderColor #495057
+  FontSize 12
+}
+skinparam arrow {
+  Color #495057
+}
+
+title Event Staffing Platform - Modelo Entidad-Relación
+
+' ============================================================
+' ENTIDADES
+' ============================================================
+
+entity "companies" as companies {
+  * id : INT <<PK>>
+  --
+  * name : VARCHAR(150)
+  * slug : VARCHAR(100) <<UQ>>
+  * contact_email : VARCHAR(255)
+  contact_phone : VARCHAR(30)
+  * is_active : BOOLEAN = true
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+}
+
+entity "users" as users {
+  * id : INT <<PK>>
+  --
+  * name : VARCHAR(150)
+  * email : VARCHAR(255) <<UQ>>
+  * password_hash : VARCHAR(255)
+  phone : VARCHAR(30)
+  * is_active : BOOLEAN = true
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+}
+
+entity "user_company_memberships" as ucm {
+  * id : INT <<PK>>
+  --
+  * user_id : INT <<FK>>
+  * company_id : INT <<FK>>
+  * role : ENUM(super_admin, admin,\n  coordinator, employee)
+  * is_active : BOOLEAN = true
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+  --
+  <<UQ>> (user_id, company_id)
+}
+
+entity "job_roles" as job_roles {
+  * id : INT <<PK>>
+  --
+  * company_id : INT <<FK>>
+  * name : VARCHAR(100)
+  * hourly_rate : DECIMAL(10,2)
+  * is_active : BOOLEAN = true
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+  --
+  <<UQ>> (company_id, name)
+}
+
+entity "employee_job_roles" as ejr {
+  * id : INT <<PK>>
+  --
+  * user_id : INT <<FK>>
+  * company_id : INT <<FK>>
+  * job_role_id : INT <<FK>>
+  * created_at : TIMESTAMPTZ
+  --
+  <<UQ>> (user_id, company_id, job_role_id)
+}
+
+entity "weekly_hours_config" as whc {
+  * id : INT <<PK>>
+  --
+  * company_id : INT <<FK>> <<UQ>>
+  * weekly_hours_limit : DECIMAL(5,2) = 40.00
+  * updated_at : TIMESTAMPTZ
+  updated_by : INT <<FK>>
+}
+
+entity "events" as events {
+  * id : INT <<PK>>
+  --
+  * company_id : INT <<FK>>
+  * name : VARCHAR(200)
+  * event_date : DATE
+  * start_time : TIME
+  end_time : TIME
+  * address : VARCHAR(500)
+  dress_code : VARCHAR(200)
+  * status : ENUM(draft, published,\n  cancelled, completed)
+  * created_by : INT <<FK>>
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+}
+
+entity "event_job_roles" as evjr {
+  * id : INT <<PK>>
+  --
+  * event_id : INT <<FK>>
+  * job_role_id : INT <<FK>>
+  * slots_required : INT
+  * slots_filled : INT = 0
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+  --
+  <<UQ>> (event_id, job_role_id)
+  <<CHK>> slots_filled <= slots_required
+}
+
+entity "event_assignments" as ea {
+  * id : INT <<PK>>
+  --
+  * event_id : INT <<FK>>
+  * user_id : INT <<FK>>
+  * company_id : INT <<FK>>
+  * job_role_id : INT <<FK>>
+  * status : ENUM(pending,\n  approved, removed)
+  assigned_by : INT <<FK>>
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+  --
+  <<UQ>> (event_id, user_id)
+}
+
+entity "shifts" as shifts {
+  * id : INT <<PK>>
+  --
+  * assignment_id : INT <<FK>> <<UQ>>
+  clock_in : TIMESTAMPTZ
+  clock_out : TIMESTAMPTZ
+  hours_worked : DECIMAL(6,2)
+  * hourly_rate_snapshot : DECIMAL(10,2)
+  regular_pay : DECIMAL(10,2)
+  * overtime_pay : DECIMAL(10,2) = 0.00
+  total_pay : DECIMAL(10,2)
+  modified_by : INT <<FK>>
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ
+  --
+  <<CHK>> clock_out > clock_in
+}
+
+entity "notifications" as notif {
+  * id : INT <<PK>>
+  --
+  * company_id : INT <<FK>>
+  * user_id : INT <<FK>>
+  * type : VARCHAR(100)
+  * channel : ENUM(email, sms)
+  subject : VARCHAR(255)
+  * body : TEXT
+  * status : ENUM(pending, sent, failed)
+  * attempts : SMALLINT = 0
+  error_message : TEXT
+  sent_at : TIMESTAMPTZ
+  * created_at : TIMESTAMPTZ
+}
+
+entity "employee_profiles" as profiles {
+  * id : INT <<PK>>
+  --
+  * user_id : INT <<FK>> <<UQ>>
+  bio : TEXT
+  avatar_url : VARCHAR(500)
+  average_rating : DECIMAL(3,2)
+  * total_events : INT = 0
+  * updated_at : TIMESTAMPTZ
+  --
+  <<CHK>> average_rating BETWEEN 1.00 AND 5.00
+}
+
+entity "event_ratings" as ratings {
+  * id : INT <<PK>>
+  --
+  * event_id : INT <<FK>>
+  * user_id : INT <<FK>>
+  * company_id : INT <<FK>>
+  * rated_by : INT <<FK>>
+  * rating : SMALLINT
+  comment : TEXT
+  * created_at : TIMESTAMPTZ
+  --
+  <<UQ>> (event_id, user_id)
+  <<CHK>> rating BETWEEN 1 AND 5
+}
+
+' ============================================================
+' RELACIONES
+' ============================================================
+
+' companies -> memberships
+companies ||--o{ ucm : "tiene miembros"
+users ||--o{ ucm : "pertenece a"
+
+' companies -> job_roles
+companies ||--o{ job_roles : "define roles"
+
+' companies -> events
+companies ||--o{ events : "organiza"
+
+' companies -> weekly_hours_config
+companies ||--|| whc : "configura límite"
+
+' companies -> notifications
+companies ||--o{ notif : "genera"
+
+' users -> employee_job_roles
+users ||--o{ ejr : "puede desempeñar"
+companies ||--o{ ejr : "en empresa"
+job_roles ||--o{ ejr : "asignado a empleados"
+
+' events -> event_job_roles
+events ||--o{ evjr : "requiere roles"
+job_roles ||--o{ evjr : "requerido en eventos"
+
+' events -> event_assignments
+events ||--o{ ea : "tiene asignaciones"
+users ||--o{ ea : "asignado en"
+companies ||--o{ ea : "contexto empresa"
+job_roles ||--o{ ea : "con rol específico"
+
+' event_assignments -> shifts
+ea ||--|| shifts : "genera turno"
+
+' users -> shifts (modified_by)
+users ||--o{ shifts : "modifica turno"
+
+' users -> notifications
+users ||--o{ notif : "recibe"
+
+' users -> employee_profiles
+users ||--|| profiles : "tiene perfil"
+
+' event_ratings
+events ||--o{ ratings : "calificado en"
+users ||--o{ ratings : "recibe calificación"
+companies ||--o{ ratings : "contexto empresa"
+
+' users -> weekly_hours_config (updated_by)
+users ||--o{ whc : "actualiza config"
+
+' users -> events (created_by)
+users ||--o{ events : "crea evento"
+
+@enduml

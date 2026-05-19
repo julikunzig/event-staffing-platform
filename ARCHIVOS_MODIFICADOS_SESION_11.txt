@@ -1,0 +1,147 @@
+================================================================================
+                    ARCHIVOS MODIFICADOS - SESIÓN 11
+                    11 de Mayo, 2026
+================================================================================
+
+TOTAL DE ARCHIVOS MODIFICADOS: 2
+
+================================================================================
+ARCHIVO 1: backend/app/routers/assignments.py
+================================================================================
+
+Función: apply_to_event()
+Líneas: ~120-160
+
+CAMBIOS REALIZADOS:
+
+1. Línea ~125 - REMOVIDO
+   print(f"DEBUG apply_to_event: user_id={user_id}, event_id={event_id}, ...")
+
+2. Línea ~135 - REMOVIDO
+   print(f"DEBUG: Found {len(same_day_events_list)} events on same day")
+
+3. Línea ~145 - REMOVIDO
+   print(f"DEBUG: Checking other_event {other_event.id}, assignment found: ...")
+
+4. Línea ~155 - REMOVIDO
+   print(f"DEBUG: time_diff={time_diff}, horas_entre_eventos={horas_entre_eventos}, ...")
+
+5. Línea ~160 - REMOVIDO
+   except ValueError as e:
+       print(f"DEBUG: ValueError parsing dates: {e}")
+   
+   CAMBIO A:
+   except ValueError:
+
+IMPACTO:
+- Código más limpio
+- Sin logs innecesarios
+- Funcionalidad sin cambios
+- Validación de horas_entre_eventos sigue funcionando igual
+
+================================================================================
+ARCHIVO 2: frontend/src/pages/EmployeeProfilePage.tsx
+================================================================================
+
+Línea: 327
+
+CAMBIO REALIZADO:
+
+ANTES:
+'⏸ ' + t('profile.clockInAvailable')
+
+DESPUÉS:
+'⏸ ' + t('profile.clockInAvailable').replace('{minutes}', String(shiftStartMinutes))
+
+CAMBIO ESPECÍFICO:
+Se agregó: .replace('{minutes}', String(shiftStartMinutes))
+
+IMPACTO:
+- Mensaje ahora muestra el valor correcto
+- Usuario ve: "⏰ Disponible 15 minutos antes de iniciar el turno"
+- En lugar de: "⏰ Disponible {minutes} minutos antes de iniciar el turno"
+
+================================================================================
+RESUMEN DE CAMBIOS
+================================================================================
+
+Total de Líneas Removidas: 5
+Total de Líneas Agregadas: 1
+Total de Líneas Modificadas: 1
+
+Archivos Afectados:
+  - backend/app/routers/assignments.py (5 líneas removidas)
+  - frontend/src/pages/EmployeeProfilePage.tsx (1 línea modificada)
+
+================================================================================
+VERIFICACIÓN DE CAMBIOS
+================================================================================
+
+Backend:
+  grep -n "print(" backend/app/routers/assignments.py | grep -i debug
+  Resultado esperado: (vacío)
+
+Frontend:
+  grep -n "replace('{minutes}'" frontend/src/pages/EmployeeProfilePage.tsx
+  Resultado esperado: 327 contiene .replace()
+
+================================================================================
+DEPLOYMENT
+================================================================================
+
+Backend:
+  docker-compose restart backend
+
+Frontend:
+  Los cambios se aplican automáticamente en desarrollo
+  Si necesitas compilar: cd frontend && npm run build
+
+================================================================================
+ROLLBACK (Si es necesario)
+================================================================================
+
+Backend:
+  git checkout backend/app/routers/assignments.py
+  docker-compose restart backend
+
+Frontend:
+  git checkout frontend/src/pages/EmployeeProfilePage.tsx
+  cd frontend && npm run build
+
+================================================================================
+NOTAS IMPORTANTES
+================================================================================
+
+1. No hay cambios en la lógica de validación
+   - La validación de horas_entre_eventos sigue siendo la misma
+   - Solo se removieron los DEBUG prints
+
+2. No hay cambios en la BD
+   - La columna horas_entre_eventos ya existe
+   - No se necesitan migraciones nuevas
+
+3. No hay cambios en las traducciones
+   - El archivo es.json ya tiene el placeholder {minutes}
+   - Solo se agregó la interpolación en el frontend
+
+================================================================================
+ESTADÍSTICAS
+================================================================================
+
+Archivos Modificados: 2
+Líneas Removidas: 5
+Líneas Agregadas: 1
+Líneas Modificadas: 1
+Cambios Totales: 7
+
+Impacto en Funcionalidad: Bajo (solo limpieza de código)
+Impacto en UX: Medio (mensaje más claro)
+
+================================================================================
+FIN DE ARCHIVOS MODIFICADOS
+================================================================================
+
+Generado: 11 de Mayo, 2026
+Status: ✅ LISTO PARA PRODUCCIÓN
+
+================================================================================

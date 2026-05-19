@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation files (session notes)
+CAMBIOS_*.md
+TESTING_*.md
+VERIFICACION_*.md
+RESUMEN_*.md
+INSTRUCCIONES_*.md
+CHECKLIST_*.md
+PRESENTACION_*.md
+INDICE_*.md
+SESION_*.md
+ARCHIVOS_*.md
+ACTUALIZACION_*.md
+ACCESO_*.md
+HABILITAR_*.md
+IMPLEMENTACION_*.md
+FIX_*.md
+GUIA_*.md
+PROXIMO_*.md
+design-previews/
