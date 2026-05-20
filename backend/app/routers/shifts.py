@@ -529,9 +529,15 @@ async def close_event_shifts(
                 )
             shift.hourly_rate_snapshot = role.hourly_rate
 
-        # Si la hora de cierre es menor o igual a la hora de entrada del empleado,
-        # significa que el turno cruzó la medianoche → la hora de cierre es del día siguiente
-        if close_naive <= clock_in_naive:
+        # Lógica de detección de medianoche:
+        # Si clock_in es del día anterior (ej: 23:30) y close_time es menor (ej: 02:00),
+        # entonces close_time es del día siguiente
+        # Comparar solo las horas (sin fecha) para detectar si cruzó medianoche
+        clock_in_time_only = clock_in_naive.time()
+        close_time_only = close_naive.time()
+        
+        # Si la hora de cierre es menor que la hora de entrada, significa que cruzó medianoche
+        if close_time_only < clock_in_time_only:
             close_adj = close_naive + timedelta(days=1)
         else:
             close_adj = close_naive
