@@ -480,7 +480,7 @@ export default function ReportsPage() {
                         <th className="text-right py-2 px-2">Horas</th>
                         <th className="text-right py-2 px-2">Total</th>
                       </>
-                    ) : 'employees' in report ? (
+                    ) : 'events' in report ? (
                       <>
                         <th className="text-left py-2 px-2">Evento</th>
                         <th className="text-left py-2 px-2">Fecha</th>
@@ -503,7 +503,7 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(isEmployeesByEvent || isPaymentConsolidation ? report : Array.isArray(report) ? report.flatMap((r: any) => r.employees.map((e: any) => ({ ...e, event_name: r.event_name, event_date: r.event_date }))) : 'employees' in report ? report.employees : report.events).map(
+                  {(isEmployeesByEvent || isPaymentConsolidation ? report : Array.isArray(report) ? report.flatMap((r: any) => r.employees.map((e: any) => ({ ...e, event_name: r.event_name, event_date: r.event_date }))) : 'events' in report ? report.events : 'employees' in report ? report.employees : report.events).map(
                     (row: any, i: number) => (
                       <tr key={i} className="border-b hover:bg-gray-50">
                         {isEmployeesByEvent ? (
@@ -533,7 +533,7 @@ export default function ReportsPage() {
                             <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
                             <td className="text-right py-2 px-2 font-medium">${row.total_pay ? parseFloat(row.total_pay).toFixed(2) : '—'}</td>
                           </>
-                        ) : 'employees' in report ? (
+                        ) : 'events' in report ? (
                           <>
                             <td className="py-2 px-2">{row.event_name}</td>
                             <td className="py-2 px-2">{row.event_date}</td>
