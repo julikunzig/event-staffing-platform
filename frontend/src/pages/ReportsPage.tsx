@@ -482,10 +482,13 @@ export default function ReportsPage() {
                       </>
                     ) : 'employees' in report ? (
                       <>
-                        <th className="text-left py-2 px-2">Empleado</th>
+                        <th className="text-left py-2 px-2">Evento</th>
+                        <th className="text-left py-2 px-2">Fecha</th>
                         <th className="text-left py-2 px-2">Rol</th>
                         <th className="text-right py-2 px-2">Horas</th>
-                        <th className="text-right py-2 px-2">Tarifa</th>
+                        <th className="text-right py-2 px-2">Valor/Hora</th>
+                        <th className="text-right py-2 px-2">Pago Regular</th>
+                        <th className="text-right py-2 px-2">Overtime</th>
                         <th className="text-right py-2 px-2">Total</th>
                       </>
                     ) : (
@@ -532,10 +535,13 @@ export default function ReportsPage() {
                           </>
                         ) : 'employees' in report ? (
                           <>
-                            <td className="py-2 px-2">{row.user_name}</td>
+                            <td className="py-2 px-2">{row.event_name}</td>
+                            <td className="py-2 px-2">{row.event_date}</td>
                             <td className="py-2 px-2">{row.job_role}</td>
                             <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
                             <td className="text-right py-2 px-2">${parseFloat(row.hourly_rate).toFixed(2)}</td>
+                            <td className="text-right py-2 px-2">${row.regular_pay ? parseFloat(row.regular_pay).toFixed(2) : '—'}</td>
+                            <td className="text-right py-2 px-2">${row.overtime_pay ? parseFloat(row.overtime_pay).toFixed(2) : '—'}</td>
                             <td className="text-right py-2 px-2 font-medium">${row.total_pay ? parseFloat(row.total_pay).toFixed(2) : '—'}</td>
                           </>
                         ) : (

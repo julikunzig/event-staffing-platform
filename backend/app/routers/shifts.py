@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.core.auth import require_role, get_current_user
 from app.core.config import settings
-from app.models import Shift, EventAssignment, Event, JobRole, WeeklyHoursConfig, Company
+from app.models import Shift, EventAssignment, Event, JobRole, WeeklyHoursConfig, Company, EventJobRole
 from app.services.geo import is_within_radius
 from app.services.payment import calculate_shift_pay
 
@@ -204,12 +204,24 @@ async def clock_in(
     role = await db.get(JobRole, assignment.job_role_id)
     now = _now_naive()
 
+    # Obtener EventJobRole para verificar si existe override de tarifa
+    event_job_role_result = await db.execute(
+        select(EventJobRole).where(
+            EventJobRole.event_id == event.id,
+            EventJobRole.job_role_id == assignment.job_role_id
+        )
+    )
+    event_job_role = event_job_role_result.scalars().first()
+    
+    # Usar override si existe, sino usar tarifa base del rol
+    hourly_rate = event_job_role.hourly_rate_override if event_job_role and event_job_role.hourly_rate_override else role.hourly_rate
+
     shift = Shift(
         assignment_id=assignment_id,
         clock_in=now,
         clock_in_lat=Decimal(str(body.latitude)),
         clock_in_lng=Decimal(str(body.longitude)),
-        hourly_rate_snapshot=role.hourly_rate,
+        hourly_rate_snapshot=hourly_rate,
         overtime_pay=Decimal("0.00"),
         is_paused=False,
         total_pause_minutes=Decimal("0"),
