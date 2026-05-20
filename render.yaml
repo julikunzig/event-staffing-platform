@@ -3,7 +3,7 @@ services:
     name: event-staffing-backend
     env: python
     plan: free
-    buildCommand: pip install -r backend/requirements.txt
+    buildCommand: cd backend && pip install -r requirements.txt
     startCommand: cd backend && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
@@ -27,7 +27,6 @@ services:
   - type: pserv
     name: event-staffing-db
     plan: free
-    ipAllowList: []
     envVars:
       - key: POSTGRES_USER
         value: postgres

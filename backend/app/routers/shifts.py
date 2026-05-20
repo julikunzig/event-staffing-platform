@@ -4,7 +4,8 @@ from sqlalchemy import select, func
 from pydantic import BaseModel
 from decimal import Decimal
 from typing import Annotated
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from app.core.database import get_db
 from app.core.auth import require_role, get_current_user
 from app.core.config import settings
@@ -19,6 +20,79 @@ AuthDep = Annotated[dict, Depends(get_current_user)]
 
 def _now_naive() -> datetime:
     return datetime.utcnow()
+
+
+def _get_timezone_from_state(state: str | None) -> ZoneInfo:
+    """
+    Retorna la zona horaria basada en el estado USA.
+    Si no se puede determinar, retorna UTC.
+    """
+    if not state:
+        return ZoneInfo("UTC")
+    
+    # Mapeo de estados USA a zonas horarias
+    state_to_tz = {
+        # Eastern Time
+        "CT": ZoneInfo("America/Chicago"),
+        "ET": ZoneInfo("America/New_York"),
+        "ME": ZoneInfo("America/New_York"),
+        "NH": ZoneInfo("America/New_York"),
+        "VT": ZoneInfo("America/New_York"),
+        "MA": ZoneInfo("America/New_York"),
+        "RI": ZoneInfo("America/New_York"),
+        "CT": ZoneInfo("America/New_York"),
+        "NY": ZoneInfo("America/New_York"),
+        "NJ": ZoneInfo("America/New_York"),
+        "PA": ZoneInfo("America/New_York"),
+        "DE": ZoneInfo("America/New_York"),
+        "MD": ZoneInfo("America/New_York"),
+        "VA": ZoneInfo("America/New_York"),
+        "WV": ZoneInfo("America/New_York"),
+        "OH": ZoneInfo("America/New_York"),
+        "MI": ZoneInfo("America/New_York"),
+        "IN": ZoneInfo("America/Indiana/Indianapolis"),
+        "KY": ZoneInfo("America/Kentucky/Louisville"),
+        "TN": ZoneInfo("America/Chicago"),
+        "NC": ZoneInfo("America/New_York"),
+        "SC": ZoneInfo("America/New_York"),
+        "GA": ZoneInfo("America/New_York"),
+        "FL": ZoneInfo("America/New_York"),
+        # Central Time
+        "AL": ZoneInfo("America/Chicago"),
+        "AR": ZoneInfo("America/Chicago"),
+        "IA": ZoneInfo("America/Chicago"),
+        "IL": ZoneInfo("America/Chicago"),
+        "LA": ZoneInfo("America/Chicago"),
+        "MN": ZoneInfo("America/Chicago"),
+        "MO": ZoneInfo("America/Chicago"),
+        "MS": ZoneInfo("America/Chicago"),
+        "OK": ZoneInfo("America/Chicago"),
+        "TX": ZoneInfo("America/Chicago"),
+        "WI": ZoneInfo("America/Chicago"),
+        # Mountain Time
+        "CO": ZoneInfo("America/Denver"),
+        "ID": ZoneInfo("America/Boise"),
+        "KS": ZoneInfo("America/Denver"),
+        "MT": ZoneInfo("America/Denver"),
+        "NE": ZoneInfo("America/Denver"),
+        "NM": ZoneInfo("America/Denver"),
+        "ND": ZoneInfo("America/Denver"),
+        "SD": ZoneInfo("America/Denver"),
+        "UT": ZoneInfo("America/Denver"),
+        "WY": ZoneInfo("America/Denver"),
+        # Pacific Time
+        "AZ": ZoneInfo("America/Phoenix"),
+        "CA": ZoneInfo("America/Los_Angeles"),
+        "NV": ZoneInfo("America/Los_Angeles"),
+        "OR": ZoneInfo("America/Los_Angeles"),
+        "WA": ZoneInfo("America/Los_Angeles"),
+        # Alaska & Hawaii
+        "AK": ZoneInfo("America/Anchorage"),
+        "HI": ZoneInfo("Pacific/Honolulu"),
+    }
+    
+    state_upper = state.upper()
+    return state_to_tz.get(state_upper, ZoneInfo("UTC"))
 
 
 def _duration_hours(start: datetime, end: datetime) -> Decimal:
@@ -530,30 +604,49 @@ async def close_event_shifts(
             shift.hourly_rate_snapshot = role.hourly_rate
 
         # Lógica de detección de medianoche:
-        # El admin ingresa la hora en su zona horaria local
-        # El clock_in está en UTC
-        # Necesitamos comparar las horas ignorando la zona horaria
-        # Usar la fecha del clock_in como referencia
-        clock_in_time_only = clock_in_naive.time()
-        close_time_only = close_naive.time()
+        # Convertir clock_in de UTC a la zona horaria local del evento
+        # Luego comparar SOLO las horas (ignorando zona horaria)
+        # Regla:
+        # - Si hora_inicio < hora_fin → mismo día
+        # - Si hora_inicio > hora_fin → día siguiente
         
-        # Crear close_adj con la fecha del clock_in y la hora ingresada
-        close_adj = datetime.combine(clock_in_naive.date(), close_time_only)
+        # Obtener la zona horaria del evento basada en el estado
+        tz = _get_timezone_from_state(event.state)
         
-        # Si la hora de cierre es menor que la hora de clock-in, significa que cruzó medianoche
-        if close_time_only < clock_in_time_only:
+        # Convertir clock_in de UTC a la zona horaria local
+        clock_in_utc = clock_in_naive.replace(tzinfo=ZoneInfo("UTC"))
+        clock_in_local = clock_in_utc.astimezone(tz)
+        
+        # Extraer horas en la zona horaria local
+        clock_in_hour = clock_in_local.hour
+        clock_in_minute = clock_in_local.minute
+        close_hour = int(body.end_time.split(':')[0])
+        close_minute = int(body.end_time.split(':')[1])
+        
+        # Crear close_adj con la fecha del clock_in (local) y la hora ingresada
+        close_adj = datetime(
+            clock_in_local.year, clock_in_local.month, clock_in_local.day,
+            close_hour, close_minute, 0
+        )
+        
+        # Si hora_inicio > hora_fin, significa que cruzó medianoche
+        if clock_in_hour > close_hour or (clock_in_hour == close_hour and clock_in_minute > close_minute):
             # close_time es del día siguiente
             close_adj = close_adj + timedelta(days=1)
+        
+        # Convertir close_adj de vuelta a UTC para almacenar en la BD
+        close_adj_local = close_adj.replace(tzinfo=tz)
+        close_adj_utc = close_adj_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
         # Cerrar pausa activa si existe
         if shift.is_paused and shift.pause_start:
             ps = shift.pause_start.replace(tzinfo=None) if shift.pause_start.tzinfo else shift.pause_start
-            extra = Decimal(str(round((close_adj - ps).total_seconds() / 60, 2)))
+            extra = Decimal(str(round((close_adj_utc - ps).total_seconds() / 60, 2)))
             shift.total_pause_minutes = (shift.total_pause_minutes or Decimal("0")) + max(Decimal("0"), extra)
             shift.is_paused = False
             shift.pause_start = None
 
-        gross_hours = _duration_hours(clock_in_naive, close_adj)
+        gross_hours = _duration_hours(clock_in_naive, close_adj_utc)
         pause_hours = Decimal(str(round(float(shift.total_pause_minutes or 0) / 60, 4)))
         hours_worked = max(Decimal("0"), gross_hours - pause_hours)
 
@@ -561,7 +654,7 @@ async def close_event_shifts(
             assignment.user_id, company_id, event.event_date, db
         )
         pay = calculate_shift_pay(hours_worked, shift.hourly_rate_snapshot, limit, hours_this_week, min_shift)
-        shift.clock_out = close_adj
+        shift.clock_out = close_adj_utc
         shift.hours_worked = pay.hours_billed
         shift.regular_pay = pay.regular_pay
         shift.overtime_pay = pay.overtime_pay
