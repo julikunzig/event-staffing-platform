@@ -624,7 +624,7 @@ async def close_event_shifts(
         close_minute = int(body.end_time.split(':')[1])
         
         # Crear close_adj con la fecha del clock_in (local) y la hora ingresada
-        close_adj = datetime(
+        close_adj_local = datetime(
             clock_in_local.year, clock_in_local.month, clock_in_local.day,
             close_hour, close_minute, 0
         )
@@ -632,11 +632,12 @@ async def close_event_shifts(
         # Si hora_inicio > hora_fin, significa que cruzó medianoche
         if clock_in_hour > close_hour or (clock_in_hour == close_hour and clock_in_minute > close_minute):
             # close_time es del día siguiente
-            close_adj = close_adj + timedelta(days=1)
+            close_adj_local = close_adj_local + timedelta(days=1)
         
         # Convertir close_adj de vuelta a UTC para almacenar en la BD
-        close_adj_local = close_adj.replace(tzinfo=tz)
-        close_adj_utc = close_adj_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        # Usar localize para asignar correctamente la zona horaria
+        close_adj_local_tz = close_adj_local.replace(tzinfo=tz)
+        close_adj_utc = close_adj_local_tz.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
         # Cerrar pausa activa si existe
         if shift.is_paused and shift.pause_start:
