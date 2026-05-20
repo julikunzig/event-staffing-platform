@@ -519,6 +519,16 @@ async def close_event_shifts(
         assignment = await db.get(EventAssignment, shift.assignment_id)
         clock_in_naive = shift.clock_in.replace(tzinfo=None) if shift.clock_in.tzinfo else shift.clock_in
 
+        # Validación defensiva: si hourly_rate_snapshot es None, obtener del rol
+        if shift.hourly_rate_snapshot is None:
+            role = await db.get(JobRole, assignment.job_role_id)
+            if not role or not role.hourly_rate:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"El empleado {assignment.user_id} no tiene tarifa horaria configurada"
+                )
+            shift.hourly_rate_snapshot = role.hourly_rate
+
         # Si la hora de cierre es menor o igual a la hora de entrada del empleado,
         # significa que el turno cruzó la medianoche → la hora de cierre es del día siguiente
         if close_naive <= clock_in_naive:
