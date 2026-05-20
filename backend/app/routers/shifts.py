@@ -530,18 +530,19 @@ async def close_event_shifts(
             shift.hourly_rate_snapshot = role.hourly_rate
 
         # Lógica de detección de medianoche:
-        # Si la hora de cierre es menor que la hora de clock-in, significa que cruzó medianoche
-        # En ese caso, close_time es del día siguiente
+        # Usar la fecha del clock_in como referencia, no la fecha del evento
+        # Esto es importante porque el clock_in puede ser del día anterior si el turno cruzó medianoche
+        clock_in_date = clock_in_naive.date()
         clock_in_time_only = clock_in_naive.time()
         close_time_only = close_naive.time()
         
+        # Crear close_adj con la fecha del clock_in
+        close_adj = datetime.combine(clock_in_date, close_time_only)
+        
+        # Si la hora de cierre es menor que la hora de clock-in, significa que cruzó medianoche
         if close_time_only < clock_in_time_only:
-            # La hora de cierre es menor que la hora de clock-in
-            # Esto significa que el turno cruzó medianoche
             # close_time es del día siguiente
-            close_adj = close_naive + timedelta(days=1)
-        else:
-            close_adj = close_naive
+            close_adj = close_adj + timedelta(days=1)
 
         # Cerrar pausa activa si existe
         if shift.is_paused and shift.pause_start:
