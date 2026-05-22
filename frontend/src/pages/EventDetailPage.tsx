@@ -8,7 +8,7 @@ import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { MapPin, Clock, Shirt, Users, ArrowLeft, UserPlus, Search, X, Pencil, Timer } from 'lucide-react'
+import { MapPin, Clock, Shirt, Users, ArrowLeft, UserPlus, Search, X, Pencil, Timer, FileText, Link as LinkIcon } from 'lucide-react'
 import ProgressBar from '@/components/ui/progress-bar'
 import EventLocationMap from '@/components/EventLocationMap'
 
@@ -16,7 +16,7 @@ interface Event {
   id: number; name: string; event_date: string; start_time: string
   end_time: string | null; address: string; city: string | null
   state: string | null; zip_code: string | null
-  dress_code: string | null; status: string
+  dress_code: string | null; notes: string | null; status: string
   latitude: number | null; longitude: number | null
 }
 interface Assignment {
@@ -38,6 +38,8 @@ interface EventShift {
   clock_in: string; clock_out: string | null
   hours_worked: string | null; hourly_rate_snapshot: string; total_pay: string | null
 }
+
+interface EventDocument { id: number; name: string; url: string; created_at: string }
 
 // Parsea un datetime del backend (puede tener microsegundos y/o timezone +00:00)
 // y lo convierte a un timestamp JS válido
@@ -103,28 +105,29 @@ function StatusBadge({ status, map }: { status: string; map: Record<string, { la
 
 // ── Cierre masivo del evento por admin/coord ──────────────────────────────
 function CloseEventPanel({ eventId, onClosed }: { eventId: number; onClosed: () => void }) {
+  const { t } = useTranslation()
   const [endTime, setEndTime] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const handleClose = async () => {
-    if (!endTime) { setError('Ingresa la hora de fin'); return }
-    if (!confirm(`¿Finalizar el evento para TODOS los empleados con hora de salida ${endTime}?`)) return
+    if (!endTime) { setError(t('events.enterEndTime')); return }
+    if (!confirm(t('events.finalizeEventConfirm', { time: endTime }))) return
     setLoading(true); setError('')
     try {
       await api.post(`/shifts/events/${eventId}/close`, { end_time: endTime })
       onClosed()
     } catch (e: any) {
-      setError(e.response?.data?.detail || 'Error al cerrar el evento')
+      setError(e.response?.data?.detail || t('common.error'))
     } finally { setLoading(false) }
   }
 
   return (
     <div className="mt-3 pt-3 border-t border-slate-200">
-      <p className="text-xs font-semibold text-slate-700 mb-2">Finalizar evento para todos los empleados:</p>
+      <p className="text-xs font-semibold text-slate-700 mb-2">{t('events.finalizeEventForAll')}</p>
       <div className="flex gap-2 items-center flex-wrap">
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-slate-600 whitespace-nowrap">Hora de fin:</label>
+          <label className="text-xs text-slate-600 whitespace-nowrap">{t('events.endTimeLabel')}</label>
           <input
             type="time"
             value={endTime}
@@ -133,13 +136,15 @@ function CloseEventPanel({ eventId, onClosed }: { eventId: number; onClosed: () 
           />
         </div>
         <Button size="sm" variant="destructive" onClick={handleClose} disabled={loading || !endTime} className="gap-1">
-          {loading ? 'Cerrando...' : '⏹ Cerrar Evento'}
+          {loading ? t('events.closingEvent') : `⏹ ${t('events.closeEvent')}`}
         </Button>
       </div>
       {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
       <p className="text-xs text-slate-400 mt-1">
-        Esta acción aplica la hora de fin a todos los empleados y cambia el evento a Finalizado.
+        {t('events.thisActionApplies')}
       </p>
+
+
     </div>
   )
 }
@@ -148,6 +153,7 @@ function CloseEventPanel({ eventId, onClosed }: { eventId: number; onClosed: () 
 function EditClockIn({ shiftId, currentClockIn, onSaved }: {
   shiftId: number; currentClockIn: string; onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [newTime, setNewTime] = useState('')
   const [loading, setLoading] = useState(false)
@@ -191,7 +197,7 @@ function EditClockIn({ shiftId, currentClockIn, onSaved }: {
         onClick={startEdit}
         className="text-xs text-blue-500 hover:text-blue-700 underline mt-0.5"
       >
-        Editar hora entrada
+        {t('events.editClockIn')}
       </button>
     )
   }
@@ -218,6 +224,8 @@ function EditClockIn({ shiftId, currentClockIn, onSaved }: {
         Cancelar
       </button>
       {error && <p className="text-xs text-red-500 w-full">{error}</p>}
+
+
     </div>
   )
 }
@@ -240,6 +248,10 @@ export default function EventDetailPage() {
 
   // Turnos activos del evento (admin/coord)
   const [activeShifts, setActiveShifts] = useState<EventShift[]>([])
+
+  // Documentos y coordinadores del evento
+  const [documents, setDocuments] = useState<EventDocument[]>([])
+  const [coordinators, setCoordinators] = useState<{ user_id: number; name: string; email: string }[]>([])
 
   // Panel de invitación
   const [showInvite, setShowInvite] = useState(false)
@@ -287,6 +299,16 @@ export default function EventDetailPage() {
         const mine = (asRes.data as any[]).find((a: any) => a.event_id === Number(id))
         setMyAssignment(mine || null)
       }
+      // Cargar documentos del evento
+      try {
+        const docsRes = await api.get<EventDocument[]>(`/events/${id}/documents`)
+        setDocuments(docsRes.data)
+      } catch { setDocuments([]) }
+      // Cargar coordinadores del evento
+      try {
+        const coordRes = await api.get<{ user_id: number; name: string; email: string }[]>(`/events/${id}/coordinators`)
+        setCoordinators(coordRes.data)
+      } catch { setCoordinators([]) }
     } catch { } finally { setLoading(false) }
   }
 
@@ -451,8 +473,8 @@ export default function EventDetailPage() {
     finally { setActionLoading(false) }
   }
 
-  if (loading) return <p className="text-gray-500">Cargando...</p>
-  if (!event) return <p className="text-red-500">Evento no encontrado</p>
+  if (loading) return <p className="text-gray-500">{t('common.loading')}</p>
+  if (!event) return <p className="text-red-500">Event not found</p>
 
   const evStatus = EVENT_STATUS[event.status] || { label: event.status, color: 'bg-gray-100 text-gray-700' }
   const fullAddress = [event.address, event.city, event.state, event.zip_code].filter(Boolean).join(', ')
@@ -496,7 +518,56 @@ export default function EventDetailPage() {
           <div className="flex items-center gap-2 text-gray-700"><Clock size={16} />{event.start_time}{event.end_time ? ` - ${event.end_time}` : ''}</div>
           {event.dress_code && <div className="flex items-center gap-2 text-gray-700"><Shirt size={16} />{event.dress_code}</div>}
 
-          {/* Roles requeridos del evento */}
+          {/* Panel informativo: coordinadores, notas y documentos — visible para todos */}
+          {(coordinators.length > 0 || event.notes || documents.length > 0) && (
+            <div className="mt-3 space-y-3">
+              {/* Coordinadores */}
+              {coordinators.length > 0 && (
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <Users size={13} /> {t('events.coordinators')}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {coordinators.map(c => (
+                      <span key={c.user_id}
+                        className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-teal-100 text-teal-800 border border-teal-200">
+                        {c.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Notas adicionales */}
+              {event.notes && (
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                    <FileText size={13} /> {t('events.notes')}
+                  </p>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{event.notes}</p>
+                </div>
+              )}
+
+              {/* Documentos */}
+              {documents.length > 0 && (
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <LinkIcon size={13} /> {t('events.documents')}
+                  </p>
+                  <div className="space-y-1.5">
+                    {documents.map(doc => (
+                      <a key={doc.id} href={doc.url} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-2 text-sm text-teal-700 hover:text-teal-900 hover:underline">
+                        <LinkIcon size={13} className="flex-shrink-0" />
+                        <span className="truncate">{doc.name}</span>
+                        <span className="text-xs text-slate-400 flex-shrink-0">↗</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {eventRoles.length > 0 && (
             <div className="mt-3 p-3 bg-gray-50 rounded-lg border">
               <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
@@ -695,9 +766,9 @@ export default function EventDetailPage() {
             </div>
 
             {empLoading ? (
-              <p className="text-sm text-slate-500">Cargando empleados...</p>
+              <p className="text-sm text-slate-500">{t('common.loading')}</p>
             ) : filteredEmployees.length === 0 ? (
-              <p className="text-sm text-slate-500">No hay empleados con roles asignados.</p>
+              <p className="text-sm text-slate-500">{t('events.noEmployeesWithRoles')}</p>
             ) : (
               <div className="max-h-72 overflow-y-auto border rounded-lg divide-y">
                 {filteredEmployees.map(emp => {
@@ -773,7 +844,7 @@ export default function EventDetailPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Timer size={16} className="text-amber-600" />
-              Turnos del Evento
+              {t('events.shiftsTitle')}
               {activeShifts.length > 0 && (
                 <span className="text-xs font-normal text-slate-500 ml-1">
                   ({activeShifts.filter(s => s.clock_in && !s.clock_out).length} en curso,{' '}
@@ -784,7 +855,7 @@ export default function EventDetailPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {activeShifts.length === 0 && (
-              <p className="text-sm text-slate-500">Ningún empleado ha iniciado turno aún.</p>
+              <p className="text-sm text-slate-500">{t('events.noShiftsStarted')}</p>
             )}
 
             {activeShifts.map(shift => {

@@ -94,7 +94,7 @@ export default function EventLocationMap({
           <p className="font-semibold text-teal-900 text-sm lg:text-base break-words">{fullAddress}</p>
           {latitude && longitude && (
             <p className="text-xs text-teal-600 mt-1">
-              📍 {latitude?.toFixed(6)}, {longitude?.toFixed(6)}
+              📍 {Number(latitude).toFixed(6)}, {Number(longitude).toFixed(6)}
             </p>
           )}
           <p className="text-xs text-teal-700 mt-1.5 font-medium flex items-center gap-1">

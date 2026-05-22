@@ -214,6 +214,22 @@ async def apply_to_event(
     db.add(assignment)
     await db.flush()
     await db.refresh(assignment)
+    
+    # Send notification email to admin
+    from app.services.email_service import send_application_notification_email
+    event_creator = await db.get(User, event.created_by)
+    current_user_obj = await db.get(User, user_id)
+    role = await db.get(JobRole, body.job_role_id)
+    
+    if event_creator and current_user_obj and role:
+        await send_application_notification_email(
+            admin_email=event_creator.email,
+            employee_name=current_user_obj.name,
+            event_name=event.name,
+            role_name=role.name,
+            event_date=event.event_date.strftime("%Y-%m-%d"),
+        )
+    
     # Actualizar estado del evento
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(event_id, db)
@@ -399,6 +415,27 @@ async def invite_employee(
     db.add(assignment)
     await db.flush()
     await db.refresh(assignment)
+    
+    # Send invitation email to employee
+    from app.services.email_service import send_event_invitation_email
+    employee = await db.get(User, body.user_id)
+    role = await db.get(JobRole, body.job_role_id)
+    
+    if employee and role:
+        await send_event_invitation_email(
+            employee_emails=[employee.email],
+            event_name=event.name,
+            event_date=event.event_date.strftime("%Y-%m-%d"),
+            start_time=str(event.start_time),
+            address=event.address,
+            city=event.city or "",
+            state=event.state or "",
+            zip_code=event.zip_code or "",
+            role_name=role.name,
+            hourly_rate=str(role.hourly_rate),
+            dress_code=event.dress_code,
+        )
+    
     return assignment
 
 
@@ -478,6 +515,27 @@ async def approve_assignment(
     assignment.status = "approved"
     ejr.slots_filled += 1
     await db.flush()
+    
+    # Send confirmation email to employee
+    from app.services.email_service import send_application_approved_email
+    employee = await db.get(User, assignment.user_id)
+    role = await db.get(JobRole, assignment.job_role_id)
+    
+    if employee and role and event:
+        await send_application_approved_email(
+            employee_email=employee.email,
+            event_name=event.name,
+            event_date=event.event_date.strftime("%Y-%m-%d"),
+            start_time=str(event.start_time),
+            address=event.address,
+            city=event.city or "",
+            state=event.state or "",
+            zip_code=event.zip_code or "",
+            role_name=role.name,
+            hourly_rate=str(role.hourly_rate),
+            dress_code=event.dress_code,
+        )
+    
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(assignment.event_id, db)
     return assignment
@@ -739,6 +797,24 @@ async def accept_invitation(
     assignment.status = "approved"
     ejr.slots_filled += 1
     await db.flush()
+    
+    # Send notification email to admin about acceptance
+    from app.services.email_service import send_invitation_response_email
+    event = await db.get(Event, assignment.event_id)
+    event_creator = await db.get(User, event.created_by) if event else None
+    employee = await db.get(User, assignment.user_id)
+    role = await db.get(JobRole, assignment.job_role_id)
+    
+    if event_creator and employee and role and event:
+        await send_invitation_response_email(
+            admin_email=event_creator.email,
+            employee_name=employee.name,
+            event_name=event.name,
+            role_name=role.name,
+            event_date=event.event_date.strftime("%Y-%m-%d"),
+            accepted=True,
+        )
+    
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(assignment.event_id, db)
     return assignment
@@ -756,8 +832,27 @@ async def reject_invitation(
         raise HTTPException(status_code=404, detail="Invitación no encontrada")
     if assignment.status != "invited":
         raise HTTPException(status_code=400, detail="Solo puedes rechazar invitaciones pendientes")
+    
     assignment.status = "rejected"
     await db.flush()
+    
+    # Send notification email to admin about rejection
+    from app.services.email_service import send_invitation_response_email
+    event = await db.get(Event, assignment.event_id)
+    event_creator = await db.get(User, event.created_by) if event else None
+    employee = await db.get(User, assignment.user_id)
+    role = await db.get(JobRole, assignment.job_role_id)
+    
+    if event_creator and employee and role and event:
+        await send_invitation_response_email(
+            admin_email=event_creator.email,
+            employee_name=employee.name,
+            event_name=event.name,
+            role_name=role.name,
+            event_date=event.event_date.strftime("%Y-%m-%d"),
+            accepted=False,
+        )
+    
     # El cupo queda libre — actualizar estado del evento (puede volver a published)
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(assignment.event_id, db)

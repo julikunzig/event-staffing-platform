@@ -1,9 +1,11 @@
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
+from pydantic import field_validator, ConfigDict
 from typing import Literal
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost:5432/event_staffing"
 
@@ -17,6 +19,15 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_FROM_NUMBER: str = ""
+    TWILIO_WHATSAPP_FROM: str = "whatsapp:+14155238886"  # Twilio sandbox number
+
+    # AI
+    OPENAI_API_KEY: str = ""
+
+    # Email Configuration
+    USE_MAILHOG: bool = True
+    MAILHOG_HOST: str = "localhost"
+    MAILHOG_PORT: int = 1025
 
     # App
     ENVIRONMENT: Literal["development", "production", "test"] = "development"
@@ -28,8 +39,6 @@ class Settings(BaseSettings):
 
     # Rate limiting
     AUTH_RATE_LIMIT: str = "60/minute"
-
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
 settings = Settings()

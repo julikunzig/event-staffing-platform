@@ -33,3 +33,5 @@ class Event(Base):
     event_job_roles: Mapped[list["EventJobRole"]] = relationship(back_populates="event", cascade="all, delete-orphan")
     assignments: Mapped[list["EventAssignment"]] = relationship(back_populates="event", cascade="all, delete-orphan")
     ratings: Mapped[list["EventRating"]] = relationship(back_populates="event", cascade="all, delete-orphan")
+    coordinators: Mapped[list["EventCoordinator"]] = relationship(back_populates="event", cascade="all, delete-orphan")
+    documents: Mapped[list["EventDocument"]] = relationship(back_populates="event", cascade="all, delete-orphan")

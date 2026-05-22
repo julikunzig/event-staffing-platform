@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useRef } from 'react'
+import EmployeeChatbot from '@/components/EmployeeChatbot'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
@@ -301,6 +302,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      {/* Employee AI Chatbot — only for employees */}
+      {user && !isAdminOrCoord(user) && <EmployeeChatbot />}
 
       {/* Bottom Navigation móvil */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30 safe-area-inset-bottom shadow-lg">

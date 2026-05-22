@@ -12,6 +12,8 @@ from app.models.notification import Notification
 from app.models.employee_profile import EmployeeProfile, EventRating
 from app.models.password_reset import PasswordResetToken
 from app.models.user_document import UserDocument
+from app.models.event_coordinator import EventCoordinator
+from app.models.event_document import EventDocument
 
 __all__ = [
     "Profile", "Company", "User", "UserCompanyMembership",
@@ -19,4 +21,5 @@ __all__ = [
     "Event", "EventJobRole", "EventAssignment",
     "Shift", "Notification", "EmployeeProfile", "EventRating",
     "PasswordResetToken", "UserDocument",
+    "EventCoordinator", "EventDocument",
 ]

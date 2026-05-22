@@ -157,6 +157,8 @@ class ResetPasswordRequest(BaseModel):
 
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    from app.services.email_service import send_password_reset_email
+    
     email_lower = body.email.strip().lower()
     result = await db.execute(select(User).where(User.email == email_lower, User.is_active == True))
     user = result.scalar_one_or_none()
@@ -180,42 +182,15 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     db.add(reset_token)
     await db.flush()
 
-    # Enviar email
+    # Enviar email usando el servicio de email
     reset_url = f"http://localhost:5173/reset-password?token={token_str}"
-    await _send_reset_email(user.email, user.name, reset_url)
+    await send_password_reset_email(
+        user_email=user.email,
+        reset_link=reset_url,
+    )
 
     await db.commit()
     return {"message": "Si el email existe, recibirás un enlace de recuperación"}
-
-
-async def _send_reset_email(to_email: str, name: str, reset_url: str):
-    from app.core.config import settings
-    if not settings.RESEND_API_KEY:
-        print(f"[RESET] URL de recuperación para {to_email}: {reset_url}")
-        return
-    try:
-        import resend
-        resend.api_key = settings.RESEND_API_KEY
-        html = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #1e40af;">Recuperación de Contraseña</h2>
-          <p>Hola <strong>{name}</strong>,</p>
-          <p>Recibimos una solicitud para restablecer tu contraseña.</p>
-          <p>Haz click en el siguiente enlace para crear una nueva contraseña:</p>
-          <a href="{reset_url}" style="display:inline-block;background:#1e40af;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;margin:16px 0;">
-            Restablecer Contraseña
-          </a>
-          <p style="color:#6b7280;font-size:12px;">Este enlace expira en 2 horas. Si no solicitaste esto, ignora este email.</p>
-        </div>
-        """
-        resend.Emails.send({
-            "from": "noreply@eventstaff.app",
-            "to": to_email,
-            "subject": "Recuperación de contraseña — Event Staffing",
-            "html": html,
-        })
-    except Exception as e:
-        print(f"[RESET] Error enviando email: {e}")
 
 
 @router.post("/reset-password")

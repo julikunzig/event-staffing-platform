@@ -10,6 +10,7 @@ interface Assignment { id: number; event_id: number; job_role_id: number; status
 interface Event {
   id: number; name: string; event_date: string; start_time: string
   address: string; city: string | null; state: string | null; status: string
+  notes: string | null
 }
 interface Shift {
   id: number; assignment_id: number; clock_in: string | null; clock_out: string | null
@@ -17,6 +18,8 @@ interface Shift {
   hours_worked: string | null; total_pay: string | null; hourly_rate_snapshot: string
 }
 interface JobRole { id: number; name: string }
+interface EventCoordinator { user_id: number; name: string; email: string }
+interface EventDocument { id: number; name: string; url: string }
 
 // ── Reloj de turno en tiempo real ──────────────────────────────────────────
 function ShiftClock({ clockInIso, totalPauseMinutes, isPaused, pauseStartIso }: {
@@ -110,6 +113,8 @@ export default function EmployeeProfilePage() {
   const [events, setEvents] = useState<Map<number, Event>>(new Map())
   const [shifts, setShifts] = useState<Map<number, Shift>>(new Map())
   const [roles, setRoles] = useState<Map<number, JobRole>>(new Map())
+  const [eventCoordinators, setEventCoordinators] = useState<Map<number, EventCoordinator[]>>(new Map())
+  const [eventDocuments, setEventDocuments] = useState<Map<number, EventDocument[]>>(new Map())
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -137,12 +142,18 @@ export default function EmployeeProfilePage() {
 
       const evMap = new Map<number, Event>()
       const shiftMap = new Map<number, Shift>()
+      const coordMap = new Map<number, EventCoordinator[]>()
+      const docsMap = new Map<number, EventDocument[]>()
       await Promise.all(approvedAssignments.map(async (a) => {
         try { const r = await api.get<Event>(`/events/${a.event_id}`); evMap.set(a.event_id, r.data) } catch { }
         try { const r = await api.get<Shift>(`/shifts/${a.id}/my-shift`); if (r.data) shiftMap.set(a.id, r.data) } catch { }
+        try { const r = await api.get<EventCoordinator[]>(`/events/${a.event_id}/coordinators`); coordMap.set(a.event_id, r.data) } catch { coordMap.set(a.event_id, []) }
+        try { const r = await api.get<EventDocument[]>(`/events/${a.event_id}/documents`); docsMap.set(a.event_id, r.data) } catch { docsMap.set(a.event_id, []) }
       }))
       setEvents(evMap)
       setShifts(shiftMap)
+      setEventCoordinators(coordMap)
+      setEventDocuments(docsMap)
     } catch (e) {
       console.error('Error loading data:', e)
     } finally { setLoading(false) }
@@ -352,6 +363,8 @@ export default function EmployeeProfilePage() {
                 const ev = events.get(a.event_id)
                 const shift = shifts.get(a.id)
                 const role = roles.get(a.job_role_id)
+                const coords = eventCoordinators.get(a.event_id) || []
+                const docs = eventDocuments.get(a.event_id) || []
                 if (!ev) return null
                 const isLoading = actionLoading === a.id
                 const hasClockIn = !!shift?.clock_in
@@ -385,6 +398,45 @@ export default function EmployeeProfilePage() {
                            hasClockOut ? '✅ ' + t('profile.shiftCompleted') : t('events.assignmentStatus.approved')}
                         </span>
                       </div>
+
+                      {/* Panel informativo: coordinadores, notas y documentos */}
+                      {(coords.length > 0 || ev.notes || docs.length > 0) && (
+                        <div className="space-y-2 pt-2 border-t border-slate-100">
+                          {coords.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{t('events.coordinators')}</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {coords.map(c => (
+                                  <span key={c.user_id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800 border border-teal-200">
+                                    {c.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {ev.notes && (
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{t('events.notes')}</p>
+                              <p className="text-xs text-slate-700 bg-amber-50 border border-amber-200 rounded p-2 whitespace-pre-wrap">{ev.notes}</p>
+                            </div>
+                          )}
+                          {docs.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{t('events.documents')}</p>
+                              <div className="space-y-1">
+                                {docs.map(doc => (
+                                  <a key={doc.id} href={doc.url} target="_blank" rel="noopener noreferrer"
+                                    className="flex items-center gap-1.5 text-xs text-teal-700 hover:text-teal-900 hover:underline">
+                                    <span>📎</span>
+                                    <span className="truncate">{doc.name}</span>
+                                    <span className="text-slate-400 flex-shrink-0">↗</span>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Reloj en tiempo real — solo cuando el turno está activo */}
                       {hasClockIn && !hasClockOut && shift?.clock_in && (

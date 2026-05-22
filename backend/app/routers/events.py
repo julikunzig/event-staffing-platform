@@ -7,7 +7,7 @@ from typing import Annotated
 from datetime import date, time, datetime
 from app.core.database import get_db
 from app.core.auth import require_role, get_current_user
-from app.models import Event, EventJobRole, JobRole, EventAssignment
+from app.models import Event, EventJobRole, JobRole, EventAssignment, User
 
 router = APIRouter(prefix="/events", tags=["events"])
 AdminDep = Annotated[dict, Depends(require_role("super_admin", "admin"))]
@@ -116,10 +116,22 @@ class EventOut(BaseModel):
     latitude: Decimal | None
     longitude: Decimal | None
     dress_code: str | None
+    notes: str | None
     status: str
     is_public: bool
 
     model_config = {"from_attributes": True}
+
+
+class CoordinatorOut(BaseModel):
+    user_id: int
+    name: str
+    email: str
+    model_config = {"from_attributes": True}
+
+
+class SetCoordinatorsBody(BaseModel):
+    user_ids: list[int]
 
 
 @router.post("", response_model=EventOut, status_code=status.HTTP_201_CREATED)
@@ -196,7 +208,13 @@ async def list_events(
     query = select(Event).where(Event.company_id == company_id)
 
     if role in ("admin", "super_admin", "coordinator"):
-        # Admin/coord ven todos los eventos
+        # Admin ven todos los eventos; coordinadores solo los asignados a ellos
+        if role == "coordinator":
+            from app.models import EventCoordinator
+            query = query.join(
+                EventCoordinator,
+                (EventCoordinator.event_id == Event.id) & (EventCoordinator.user_id == user_id)
+            )
         if event_status:
             query = query.where(Event.status == event_status)
     else:
@@ -265,6 +283,31 @@ async def list_events(
     return result.scalars().all()
 
 
+@router.get("/company-coordinators", response_model=list[CoordinatorOut])
+async def list_company_coordinators(
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all active coordinators in the company (for the selector)."""
+    from app.models import UserCompanyMembership, Profile
+    company_id = current_user["company_id"]
+
+    result = await db.execute(
+        select(User)
+        .join(UserCompanyMembership, UserCompanyMembership.user_id == User.id)
+        .join(Profile, Profile.id == UserCompanyMembership.profile_id)
+        .where(
+            UserCompanyMembership.company_id == company_id,
+            UserCompanyMembership.is_active == True,
+            User.is_active == True,
+            Profile.code == "coordinator",
+        )
+        .order_by(User.name)
+    )
+    users = result.scalars().all()
+    return [CoordinatorOut(user_id=u.id, name=u.name, email=u.email) for u in users]
+
+
 @router.get("/{event_id}", response_model=EventOut)
 async def get_event(event_id: int, current_user: AuthDep, db: AsyncSession = Depends(get_db)):
     company_id = current_user["company_id"]
@@ -323,6 +366,10 @@ async def publish_event(
     current_user: AdminDep,
     db: AsyncSession = Depends(get_db),
 ):
+    from app.models import EmployeeJobRole, UserCompanyMembership, Profile, EventAssignment
+    from app.services.email_service import send_event_published_email_personalized
+    from app.services.whatsapp_service import send_whatsapp
+
     company_id = current_user["company_id"]
     event = await db.get(Event, event_id)
     if not event or event.company_id != company_id:
@@ -330,8 +377,217 @@ async def publish_event(
     if event.status != "created":
         raise HTTPException(status_code=400, detail="Solo se pueden publicar eventos en estado 'creado'")
 
+    # Get event job roles
+    result = await db.execute(
+        select(EventJobRole).where(EventJobRole.event_id == event_id)
+    )
+    event_roles = result.scalars().all()
+
+    # Update event status
     event.status = "published"
     await db.flush()
+
+    if not event_roles:
+        await db.commit()
+        await db.refresh(event)
+        return event
+
+    job_role_ids = [er.job_role_id for er in event_roles]
+
+    # Build roles info for emails
+    roles_info = []
+    for er in event_roles:
+        role = await db.get(JobRole, er.job_role_id)
+        if role:
+            roles_info.append({"name": role.name, "rate": str(role.hourly_rate)})
+
+    # ── Get invited employees (status = 'invited') ──────────────────────────
+    invited_result = await db.execute(
+        select(EventAssignment, User)
+        .join(User, User.id == EventAssignment.user_id)
+        .where(
+            EventAssignment.event_id == event_id,
+            EventAssignment.status == "invited",
+        )
+    )
+    invited_rows = invited_result.all()
+    invited_employees = [user for _, user in invited_rows]
+    invited_assignments = [a for a, _ in invited_rows]
+
+    # ── Check if invitations fill all slots ─────────────────────────────────
+    from collections import defaultdict
+    invited_per_role: dict = defaultdict(int)
+    for a in invited_assignments:
+        invited_per_role[a.job_role_id] += 1
+
+    # Are all slots covered by invitations?
+    all_slots_filled = bool(invited_assignments) and all(
+        invited_per_role.get(er.job_role_id, 0) >= er.slots_required
+        for er in event_roles
+    )
+
+    # Deduplicate invited employees by user_id
+    seen_invited: set = set()
+    unique_invited: list = []
+    for emp in invited_employees:
+        if emp.id not in seen_invited and emp.email:
+            seen_invited.add(emp.id)
+            unique_invited.append(emp)
+
+    event_date_str = event.event_date.strftime("%Y-%m-%d")
+    start_time_str = str(event.start_time)
+
+    try:
+        # Helper: send WhatsApp invitation to an invited employee
+        async def notify_invited_via_whatsapp(emp, assignment_id: int):
+            if not emp.phone:
+                return
+            first_name = emp.name.split()[0].capitalize() if emp.name else ""
+            wa_msg = (
+                f"👋 Hola {first_name}!\n\n"
+                f"Has sido invitado/a a trabajar en el evento *{event.name}*.\n"
+                f"📅 Fecha: {event_date_str}\n"
+                f"🕐 Hora: {start_time_str}\n"
+                f"📍 {event.address}, {event.city or ''} {event.state or ''}\n\n"
+                f"Responde con:\n"
+                f"*1* ✅ para ACEPTAR la invitación\n"
+                f"*2* ❌ para RECHAZAR la invitación\n\n"
+                f"(ID de asignación: {assignment_id})"
+            )
+            send_whatsapp(emp.phone, wa_msg)
+
+        # Build map: user_id → assignment (for WhatsApp with assignment_id)
+        user_assignment_map = {a.user_id: a for a in invited_assignments}
+
+        if all_slots_filled and unique_invited:
+            # ── CASE A: All slots filled by invitations ──────────────────────
+            # Send email + WhatsApp to invited employees
+            for emp in unique_invited:
+                first_name = emp.name.split()[0].capitalize() if emp.name else ""
+                await send_event_published_email_personalized(
+                    employee_email=emp.email,
+                    employee_name=first_name,
+                    event_name=event.name,
+                    event_date=event_date_str,
+                    start_time=start_time_str,
+                    address=event.address,
+                    city=event.city or "",
+                    state=event.state or "",
+                    zip_code=event.zip_code or "",
+                    roles=roles_info,
+                    dress_code=event.dress_code,
+                )
+                assignment = user_assignment_map.get(emp.id)
+                if assignment:
+                    await notify_invited_via_whatsapp(emp, assignment.id)
+
+        elif unique_invited:
+            # ── CASE B: Invitations exist but don't fill all slots ────────────
+            # Send email + WhatsApp to invited employees
+            for emp in unique_invited:
+                first_name = emp.name.split()[0].capitalize() if emp.name else ""
+                await send_event_published_email_personalized(
+                    employee_email=emp.email,
+                    employee_name=first_name,
+                    event_name=event.name,
+                    event_date=event_date_str,
+                    start_time=start_time_str,
+                    address=event.address,
+                    city=event.city or "",
+                    state=event.state or "",
+                    zip_code=event.zip_code or "",
+                    roles=roles_info,
+                    dress_code=event.dress_code,
+                )
+                assignment = user_assignment_map.get(emp.id)
+                if assignment:
+                    await notify_invited_via_whatsapp(emp, assignment.id)
+
+            # Also send email to remaining eligible employees (not already invited)
+            eligible_result = await db.execute(
+                select(User).join(
+                    UserCompanyMembership, User.id == UserCompanyMembership.user_id
+                ).join(
+                    Profile, Profile.id == UserCompanyMembership.profile_id
+                ).where(
+                    UserCompanyMembership.company_id == company_id,
+                    User.id.in_(
+                        select(EmployeeJobRole.user_id).where(
+                            EmployeeJobRole.company_id == company_id,
+                            EmployeeJobRole.job_role_id.in_(job_role_ids)
+                        )
+                    ),
+                    User.is_active == True,
+                    UserCompanyMembership.is_active == True,
+                    Profile.code == "employee",
+                    User.id.notin_(seen_invited),  # exclude already invited
+                ).distinct()
+            )
+            other_employees = eligible_result.scalars().all()
+            seen_other: set = set()
+            for emp in other_employees:
+                if emp.id not in seen_other and emp.email:
+                    seen_other.add(emp.id)
+                    first_name = emp.name.split()[0].capitalize() if emp.name else ""
+                    await send_event_published_email_personalized(
+                        employee_email=emp.email,
+                        employee_name=first_name,
+                        event_name=event.name,
+                        event_date=event_date_str,
+                        start_time=start_time_str,
+                        address=event.address,
+                        city=event.city or "",
+                        state=event.state or "",
+                        zip_code=event.zip_code or "",
+                        roles=roles_info,
+                        dress_code=event.dress_code,
+                    )
+
+        else:
+            # ── CASE C: No invitations — send email to all eligible employees ─
+            eligible_result = await db.execute(
+                select(User).join(
+                    UserCompanyMembership, User.id == UserCompanyMembership.user_id
+                ).join(
+                    Profile, Profile.id == UserCompanyMembership.profile_id
+                ).where(
+                    UserCompanyMembership.company_id == company_id,
+                    User.id.in_(
+                        select(EmployeeJobRole.user_id).where(
+                            EmployeeJobRole.company_id == company_id,
+                            EmployeeJobRole.job_role_id.in_(job_role_ids)
+                        )
+                    ),
+                    User.is_active == True,
+                    UserCompanyMembership.is_active == True,
+                    Profile.code == "employee",
+                ).distinct()
+            )
+            all_employees = eligible_result.scalars().all()
+            seen_all: set = set()
+            for emp in all_employees:
+                if emp.id not in seen_all and emp.email:
+                    seen_all.add(emp.id)
+                    first_name = emp.name.split()[0].capitalize() if emp.name else ""
+                    await send_event_published_email_personalized(
+                        employee_email=emp.email,
+                        employee_name=first_name,
+                        event_name=event.name,
+                        event_date=event_date_str,
+                        start_time=start_time_str,
+                        address=event.address,
+                        city=event.city or "",
+                        state=event.state or "",
+                        zip_code=event.zip_code or "",
+                        roles=roles_info,
+                        dress_code=event.dress_code,
+                    )
+
+    except Exception as e:
+        print(f"❌ Error sending notifications on publish: {str(e)}")
+
+    await db.commit()
+    await db.refresh(event)
     return event
 
 
@@ -648,3 +904,212 @@ async def add_event_job_role(
         event.status = "published"
         await db.flush()
     return ejr
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COORDINATOR ASSIGNMENT
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/{event_id}/coordinators", response_model=list[CoordinatorOut])
+@router.get("/{event_id}/coordinators", response_model=list[CoordinatorOut])
+async def get_event_coordinators(
+    event_id: int,
+    current_user: AuthDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return coordinators assigned to this event. Accessible to all authenticated users."""
+    from app.models import EventCoordinator
+    company_id = current_user["company_id"]
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    result = await db.execute(
+        select(User)
+        .join(EventCoordinator, EventCoordinator.user_id == User.id)
+        .where(EventCoordinator.event_id == event_id)
+    )
+    users = result.scalars().all()
+    return [CoordinatorOut(user_id=u.id, name=u.name, email=u.email) for u in users]
+
+
+@router.put("/{event_id}/coordinators", response_model=list[CoordinatorOut])
+async def set_event_coordinators(
+    event_id: int,
+    body: SetCoordinatorsBody,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the full list of coordinators for this event (admin only)."""
+    from app.models import EventCoordinator, UserCompanyMembership, Profile
+    company_id = current_user["company_id"]
+    admin_id = int(current_user["sub"])
+
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    # Validate all user_ids are coordinators in this company
+    if body.user_ids:
+        result = await db.execute(
+            select(User)
+            .join(UserCompanyMembership, UserCompanyMembership.user_id == User.id)
+            .join(Profile, Profile.id == UserCompanyMembership.profile_id)
+            .where(
+                User.id.in_(body.user_ids),
+                UserCompanyMembership.company_id == company_id,
+                UserCompanyMembership.is_active == True,
+                Profile.code == "coordinator",
+            )
+        )
+        valid_users = result.scalars().all()
+        valid_ids = {u.id for u in valid_users}
+        invalid = set(body.user_ids) - valid_ids
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Los siguientes usuarios no son coordinadores activos: {list(invalid)}"
+            )
+    else:
+        valid_users = []
+
+    # Delete existing coordinators for this event
+    existing = await db.execute(
+        select(EventCoordinator).where(EventCoordinator.event_id == event_id)
+    )
+    for ec in existing.scalars().all():
+        await db.delete(ec)
+    await db.flush()
+
+    # Insert new ones
+    for uid in body.user_ids:
+        db.add(EventCoordinator(event_id=event_id, user_id=uid, assigned_by=admin_id))
+    await db.flush()
+
+    return [CoordinatorOut(user_id=u.id, name=u.name, email=u.email) for u in valid_users]
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVENT NOTES
+# ─────────────────────────────────────────────────────────────────────────────
+
+class NotesUpdate(BaseModel):
+    notes: str | None = None
+
+
+@router.patch("/{event_id}/notes", response_model=EventOut)
+async def update_event_notes(
+    event_id: int,
+    body: NotesUpdate,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the additional notes for an event (admin only)."""
+    company_id = current_user["company_id"]
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    event.notes = body.notes.strip().upper() if body.notes else body.notes
+    await db.flush()
+    return event
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVENT DOCUMENTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+class EventDocumentOut(BaseModel):
+    id: int
+    name: str
+    url: str
+    created_at: str
+    model_config = {"from_attributes": True}
+
+
+class EventDocumentCreate(BaseModel):
+    name: str
+    url: str
+
+
+@router.get("/{event_id}/documents", response_model=list[EventDocumentOut])
+async def get_event_documents(
+    event_id: int,
+    current_user: AuthDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return documents for an event. Accessible to all authenticated users of the company."""
+    from app.models import EventDocument
+    company_id = current_user["company_id"]
+
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    result = await db.execute(
+        select(EventDocument)
+        .where(EventDocument.event_id == event_id)
+        .order_by(EventDocument.created_at)
+    )
+    docs = result.scalars().all()
+    return [
+        EventDocumentOut(
+            id=d.id,
+            name=d.name,
+            url=d.url,
+            created_at=d.created_at.isoformat(),
+        )
+        for d in docs
+    ]
+
+
+@router.post("/{event_id}/documents", response_model=EventDocumentOut, status_code=201)
+async def add_event_document(
+    event_id: int,
+    body: EventDocumentCreate,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a document/link to an event (admin only)."""
+    from app.models import EventDocument
+    company_id = current_user["company_id"]
+    user_id = int(current_user["sub"])
+
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    doc = EventDocument(
+        event_id=event_id,
+        name=body.name.strip(),
+        url=body.url.strip(),
+        uploaded_by=user_id,
+    )
+    db.add(doc)
+    await db.flush()
+    await db.refresh(doc)
+    return EventDocumentOut(id=doc.id, name=doc.name, url=doc.url, created_at=doc.created_at.isoformat())
+
+
+@router.delete("/{event_id}/documents/{document_id}", status_code=204)
+async def delete_event_document(
+    event_id: int,
+    document_id: int,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a document from an event (admin only)."""
+    from app.models import EventDocument
+    company_id = current_user["company_id"]
+
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    doc = await db.get(EventDocument, document_id)
+    if not doc or doc.event_id != event_id:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    await db.delete(doc)
+    await db.flush()
