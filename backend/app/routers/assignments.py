@@ -639,7 +639,6 @@ async def bulk_invite(
     current_user: AdminDep,
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.notification_service import send_bulk_invitations
     from datetime import datetime as dt_class
     
     company_id = current_user["company_id"]
@@ -737,7 +736,7 @@ async def bulk_invite(
         db.add(assignment)
         created.append(inv.user_id)
 
-        # Preparar datos para email
+        # Guardar datos del empleado/rol para notificaciones post-flush
         user_result = await db.get(User, inv.user_id)
         role_result = await db.get(JobRole, inv.job_role_id)
         if user_result and role_result:
@@ -747,19 +746,80 @@ async def bulk_invite(
             email_tasks.append({
                 "email": user_result.email,
                 "name": user_result.name,
+                "phone": user_result.phone,
+                "user_id": user_result.id,
                 "event_name": event.name,
                 "event_date": event_date_str,
+                "event_date_raw": event.event_date.strftime("%Y-%m-%d"),
+                "event_time": str(event.start_time),
                 "event_address": address_str,
+                "event_address_raw": event.address,
+                "event_city": event.city or "",
+                "event_state": event.state or "",
+                "event_dress_code": event.dress_code or "No especificado",
                 "role_name": role_result.name,
                 "hourly_rate": str(role_result.hourly_rate),
+                "assignment": assignment,  # referencia para obtener el ID post-flush
             })
 
     await db.flush()
 
-    # Enviar emails de forma asíncrona
-    if email_tasks:
-        import asyncio
-        asyncio.create_task(send_bulk_invitations(email_tasks))
+    # Enviar notificaciones: email + WhatsApp + push por cada empleado invitado
+    for task in email_tasks:
+        assignment_obj = task["assignment"]
+
+        # 1. Email
+        try:
+            from app.services.email_service import send_event_invitation_email
+            await send_event_invitation_email(
+                employee_emails=[task["email"]],
+                event_name=task["event_name"],
+                event_date=task["event_date_raw"],
+                start_time=task["event_time"],
+                address=task["event_address_raw"],
+                city=task["event_city"],
+                state=task["event_state"],
+                zip_code="",
+                role_name=task["role_name"],
+                hourly_rate=task["hourly_rate"],
+                dress_code=task["event_dress_code"],
+            )
+        except Exception as e:
+            print(f"[NOTIF] Error enviando email a {task['email']}: {e}")
+
+        # 2. WhatsApp al empleado
+        if task.get("phone"):
+            try:
+                from app.services.whatsapp_service import send_whatsapp
+                wa_msg = (
+                    f"📩 *¡Fuiste invitado a un evento!*\n\n"
+                    f"📋 *{task['event_name']}*\n"
+                    f"📅 Fecha: {task['event_date_raw']}\n"
+                    f"🕐 Hora: {task['event_time']}\n"
+                    f"📍 {task['event_address']}\n"
+                    f"👔 Dress code: {task['event_dress_code']}\n"
+                    f"💼 Rol: {task['role_name']} — ${task['hourly_rate']}/hora\n\n"
+                    f"Responde con:\n"
+                    f"*1 {assignment_obj.id}* — ✅ Aceptar\n"
+                    f"*2 {assignment_obj.id}* — ❌ Rechazar"
+                )
+                send_whatsapp(task["phone"], wa_msg)
+                print(f"[WhatsApp] Invitation sent to {task['phone']} for assignment {assignment_obj.id}")
+            except Exception as e:
+                print(f"[WhatsApp] Error sending to {task['phone']}: {e}")
+
+        # 3. Push notification al empleado
+        try:
+            from app.services.push_service import send_push_to_user
+            await send_push_to_user(
+                task["user_id"],
+                f"📩 Invitación: {task['event_name']}",
+                f"Fuiste invitado como {task['role_name']}",
+                "/profile",
+                db,
+            )
+        except Exception as e:
+            print(f"[Push] Error sending to user {task['user_id']}: {e}")
 
     return {"invited": created, "skipped": skipped, "count": len(created)}
 
