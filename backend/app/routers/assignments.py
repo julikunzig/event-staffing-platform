@@ -427,6 +427,7 @@ async def invite_employee(
     role = await db.get(JobRole, body.job_role_id)
     
     if employee and role:
+        # 1. Email al empleado
         await send_event_invitation_email(
             employee_emails=[employee.email],
             event_name=event.name,
@@ -440,12 +441,38 @@ async def invite_employee(
             hourly_rate=str(role.hourly_rate),
             dress_code=event.dress_code,
         )
-        # Push to employee
+        # 2. WhatsApp al empleado con instrucciones para responder
+        if employee.phone:
+            try:
+                from app.services.whatsapp_service import send_whatsapp
+                wa_msg = (
+                    f"📩 *¡Fuiste invitado a un evento!*\n\n"
+                    f"📋 *{event.name}*\n"
+                    f"📅 Fecha: {event.event_date.strftime('%Y-%m-%d')}\n"
+                    f"🕐 Hora: {event.start_time}\n"
+                    f"📍 {event.address}, {event.city or ''} {event.state or ''}\n"
+                    f"👔 Dress code: {event.dress_code or 'No especificado'}\n"
+                    f"💼 Rol: {role.name} — ${role.hourly_rate}/hora\n\n"
+                    f"Responde con:\n"
+                    f"*1 {assignment.id}* — ✅ Aceptar\n"
+                    f"*2 {assignment.id}* — ❌ Rechazar"
+                )
+                send_whatsapp(employee.phone, wa_msg)
+                print(f"[WhatsApp] Invitation sent to {employee.phone} for assignment {assignment.id}")
+            except Exception as e:
+                print(f"[WhatsApp] Error sending invitation to {employee.phone}: {e}")
+        # 3. Push notification al empleado
         try:
             from app.services.push_service import send_push_to_user
-            await send_push_to_user(body.user_id, f"📩 Invitación: {event.name}", f"Fuiste invitado como {role.name} el {event.event_date}", "/profile", db)
+            await send_push_to_user(
+                body.user_id,
+                f"📩 Invitación: {event.name}",
+                f"Fuiste invitado como {role.name} el {event.event_date}",
+                "/profile",
+                db,
+            )
         except Exception: pass
-    
+
     return assignment
 
 
