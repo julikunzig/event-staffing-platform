@@ -19,7 +19,7 @@ export default defineConfig({
     strictPort: false,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://10.0.0.13:8000',
         changeOrigin: true,
         rewrite: (path) => path,
       },

@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # AI
     OPENAI_API_KEY: str = ""
 
+    # Web Push (VAPID)
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_CLAIMS_EMAIL: str = "mailto:admin@eventscontrol.com"
+
     # Email Configuration
     USE_MAILHOG: bool = True
     MAILHOG_HOST: str = "localhost"

@@ -456,6 +456,11 @@ async def publish_event(
             )
             send_whatsapp(emp.phone, wa_msg)
 
+        # Helper: send push notification to an employee
+        from app.services.push_service import send_push_to_user
+        async def notify_push(user_id: int, title: str, body: str):
+            await send_push_to_user(user_id, title, body, "/profile", db)
+
         # Build map: user_id → assignment (for WhatsApp with assignment_id)
         user_assignment_map = {a.user_id: a for a in invited_assignments}
 
@@ -483,7 +488,7 @@ async def publish_event(
 
         elif unique_invited:
             # ── CASE B: Invitations exist but don't fill all slots ────────────
-            # Send email + WhatsApp to invited employees
+            # Send email + WhatsApp + push to invited employees
             for emp in unique_invited:
                 first_name = emp.name.split()[0].capitalize() if emp.name else ""
                 await send_event_published_email_personalized(
@@ -502,6 +507,7 @@ async def publish_event(
                 assignment = user_assignment_map.get(emp.id)
                 if assignment:
                     await notify_invited_via_whatsapp(emp, assignment.id)
+                await notify_push(emp.id, f"📋 {event.name}", f"Has sido invitado a trabajar el {event_date_str}")
 
             # Also send email to remaining eligible employees (not already invited)
             eligible_result = await db.execute(
@@ -582,6 +588,7 @@ async def publish_event(
                         roles=roles_info,
                         dress_code=event.dress_code,
                     )
+                    await notify_push(emp.id, f"🎉 Nuevo evento: {event.name}", f"Disponible el {event_date_str}. ¡Aplica ahora!")
 
     except Exception as e:
         print(f"❌ Error sending notifications on publish: {str(e)}")

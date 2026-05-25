@@ -4,7 +4,10 @@ AI service using OpenAI API.
 - chat_with_assistant: employee chatbot that answers questions about their shifts/events
 """
 
-from app.core.config import settings
+import os
+
+# Read from environment variable (set in backend/.env)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 
 async def generate_event_notes(
@@ -28,10 +31,10 @@ async def generate_event_notes(
     lang_instruction = "in English" if language == "en" else "en español"
 
     # Try OpenAI first
-    if settings.OPENAI_API_KEY:
+    if OPENAI_API_KEY:
         try:
             from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
             prompt = f"""You are an assistant for a social event staffing platform.
 
@@ -112,11 +115,11 @@ async def chat_with_employee_assistant(
         "total_pay_this_month": float,
     }
     """
-    if not settings.OPENAI_API_KEY:
+    if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not configured")
 
     from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
     # Build context string
     ctx_parts = []

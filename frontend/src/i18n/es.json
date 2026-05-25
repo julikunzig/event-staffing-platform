@@ -326,6 +326,13 @@
     "companiesDesc": "Gestionar empresas",
     "accountDesc": "Perfil, documentos y roles"
   },
+  "push": {
+    "enable": "Activar notificaciones",
+    "enabled": "Notificaciones activas ✓",
+    "blocked": "Notificaciones bloqueadas en el navegador",
+    "notifications": "Notificaciones",
+    "description": "Activa las notificaciones push para recibir alertas de nuevos eventos, invitaciones y aprobaciones directamente en tu dispositivo, incluso cuando la app esté cerrada."
+  },
   "chatbot": {
     "title": "Asistente IA",
     "subtitle": "Pregúntame sobre tus turnos",

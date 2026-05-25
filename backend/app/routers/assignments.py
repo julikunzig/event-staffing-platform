@@ -229,6 +229,11 @@ async def apply_to_event(
             role_name=role.name,
             event_date=event.event_date.strftime("%Y-%m-%d"),
         )
+        # Push to admin
+        try:
+            from app.services.push_service import send_push_to_user
+            await send_push_to_user(event.created_by, f"📋 Nueva aplicación: {event.name}", f"{current_user_obj.name} aplicó como {role.name}", "/events", db)
+        except Exception: pass
     
     # Actualizar estado del evento
     from app.services.event_status import check_and_update_event_status
@@ -435,6 +440,11 @@ async def invite_employee(
             hourly_rate=str(role.hourly_rate),
             dress_code=event.dress_code,
         )
+        # Push to employee
+        try:
+            from app.services.push_service import send_push_to_user
+            await send_push_to_user(body.user_id, f"📩 Invitación: {event.name}", f"Fuiste invitado como {role.name} el {event.event_date}", "/profile", db)
+        except Exception: pass
     
     return assignment
 
@@ -535,6 +545,11 @@ async def approve_assignment(
             hourly_rate=str(role.hourly_rate),
             dress_code=event.dress_code,
         )
+        # Push to employee
+        try:
+            from app.services.push_service import send_push_to_user
+            await send_push_to_user(assignment.user_id, f"✅ Aprobado: {event.name}", f"Tu aplicación como {role.name} fue aprobada", "/profile", db)
+        except Exception: pass
     
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(assignment.event_id, db)
@@ -814,6 +829,11 @@ async def accept_invitation(
             event_date=event.event_date.strftime("%Y-%m-%d"),
             accepted=True,
         )
+        # Push to admin
+        try:
+            from app.services.push_service import send_push_to_user
+            await send_push_to_user(event.created_by, f"✅ {employee.name} aceptó", f"Aceptó la invitación para {event.name}", "/events", db)
+        except Exception: pass
     
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(assignment.event_id, db)
@@ -852,6 +872,11 @@ async def reject_invitation(
             event_date=event.event_date.strftime("%Y-%m-%d"),
             accepted=False,
         )
+        # Push to admin
+        try:
+            from app.services.push_service import send_push_to_user
+            await send_push_to_user(event.created_by, f"❌ {employee.name} rechazó", f"Rechazó la invitación para {event.name}", "/events", db)
+        except Exception: pass
     
     # El cupo queda libre — actualizar estado del evento (puede volver a published)
     from app.services.event_status import check_and_update_event_status

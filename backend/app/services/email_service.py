@@ -2,10 +2,11 @@
 Email service - uses Resend API to send bilingual notifications.
 """
 
+import os
 from typing import Optional, List
 
-# Resend API key - hardcoded to avoid Docker env issues
-RESEND_API_KEY = "re_cNaePJ7i_DiJJVEyDKSMAYGAufwtcpBQw"
+# Read from environment variable (set in backend/.env)
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 FROM_ADDRESS = "EventsControl <onboarding@resend.dev>"
 # Resend test mode: can only send to the account owner's email.
 # All emails are redirected here until a domain is verified in resend.com/domains

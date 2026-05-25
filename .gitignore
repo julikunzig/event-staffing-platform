@@ -48,6 +48,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Allow frontend/src/lib (overrides generic lib/ rule above)
+!frontend/src/lib/
+
 # Database
 *.db
 *.sqlite

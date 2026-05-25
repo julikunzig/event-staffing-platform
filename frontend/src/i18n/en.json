@@ -326,6 +326,13 @@
     "companiesDesc": "Manage companies",
     "accountDesc": "Profile, documents and roles"
   },
+  "push": {
+    "enable": "Enable notifications",
+    "enabled": "Notifications active ✓",
+    "blocked": "Notifications blocked in browser",
+    "notifications": "Notifications",
+    "description": "Enable push notifications to receive alerts for new events, invitations and approvals directly on your device, even when the app is closed."
+  },
   "chatbot": {
     "title": "AI Assistant",
     "subtitle": "Ask me about your shifts",

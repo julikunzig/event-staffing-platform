@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { User, FileText, Briefcase, Upload, Trash2, Save, Lock, Globe } from 'lucide-react'
+import { User, FileText, Briefcase, Upload, Trash2, Save, Lock, Globe, Bell } from 'lucide-react'
+import PushNotificationToggle from '@/components/PushNotificationToggle'
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
   'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC',
@@ -140,12 +141,13 @@ export default function AccountPage() {
       <h2 className="text-2xl font-bold text-slate-900">{t('nav.account')}</h2>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-200 pb-2">
+      <div className="flex gap-2 border-b border-slate-200 pb-2 flex-wrap">
         {[
           { key: 'profile', label: t('nav.profile'), icon: User },
           { key: 'password', label: t('forms.changePassword') || 'Cambiar Contraseña', icon: Lock },
           { key: 'documents', label: t('forms.myDocuments'), icon: FileText },
           { key: 'roles', label: t('forms.myRoles'), icon: Briefcase },
+          { key: 'notifications', label: t('push.notifications') || 'Notificaciones', icon: Bell },
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key as any)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t.key ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
@@ -153,6 +155,23 @@ export default function AccountPage() {
           </button>
         ))}
       </div>
+
+      {/* Notificaciones */}
+      {tab === 'notifications' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Bell size={16} /> {t('push.notifications') || 'Notificaciones Push'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-600">
+              {t('push.description') || 'Activa las notificaciones push para recibir alertas de nuevos eventos, invitaciones y aprobaciones directamente en tu dispositivo, incluso cuando la app esté cerrada.'}
+            </p>
+            <PushNotificationToggle />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Perfil */}
       {tab === 'profile' && (

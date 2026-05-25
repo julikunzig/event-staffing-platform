@@ -20,6 +20,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useRef } from 'react'
 import EmployeeChatbot from '@/components/EmployeeChatbot'
+import PushNotificationToggle from '@/components/PushNotificationToggle'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
@@ -286,7 +287,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </nav>
 
-          <div className="p-4 border-t border-slate-700">
+          <div className="p-4 border-t border-slate-700 space-y-2">
+            <PushNotificationToggle />
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium bg-red-500/10 text-red-400 active:bg-red-500/20"

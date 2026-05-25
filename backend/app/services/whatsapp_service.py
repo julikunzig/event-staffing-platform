@@ -1,23 +1,27 @@
 """
 WhatsApp bot service.
-Receives messages from Twilio sandbox, uses GPT to extract event data,
-creates the event via the internal API, and replies to the admin.
 """
 
 import json
-from app.core.config import settings
+import os
+
+# Read from environment variables (set in backend/.env)
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 
 def send_whatsapp(to: str, body: str) -> bool:
     """Send a WhatsApp message via Twilio."""
-    if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
         print(f"[WhatsApp] Twilio not configured. Would send to {to}: {body}")
         return False
     try:
         from twilio.rest import Client
-        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         client.messages.create(
-            from_=settings.TWILIO_WHATSAPP_FROM,
+            from_=TWILIO_WHATSAPP_FROM,
             to=f"whatsapp:{to}" if not to.startswith("whatsapp:") else to,
             body=body,
         )
@@ -28,15 +32,12 @@ def send_whatsapp(to: str, body: str) -> bool:
 
 
 async def extract_event_from_message(message: str, language: str = "es") -> dict | None:
-    """
-    Use GPT to extract event data from a natural language WhatsApp message.
-    Returns a dict with event fields or None if extraction fails.
-    """
-    if not settings.OPENAI_API_KEY:
+    """Use GPT to extract event data from a natural language WhatsApp message."""
+    if not OPENAI_API_KEY:
         return None
 
     from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
     today_hint = "Today's date context: use the year 2026 if no year is specified."
 
