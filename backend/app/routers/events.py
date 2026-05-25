@@ -199,13 +199,43 @@ async def create_event(
 async def list_events(
     current_user: AuthDep,
     event_status: str | None = Query(None, alias="status"),
+    search: str | None = Query(None, description="Buscar por nombre o ID"),
+    from_date: str | None = Query(None, description="Fecha inicio YYYY-MM-DD"),
+    to_date: str | None = Query(None, description="Fecha fin YYYY-MM-DD"),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import or_, cast, String
     company_id = current_user["company_id"]
     role = current_user.get("role", "employee")
     user_id = int(current_user["sub"])
 
     query = select(Event).where(Event.company_id == company_id)
+
+    # Filtro de búsqueda por nombre o ID
+    if search:
+        search_stripped = search.strip()
+        # Si es numérico, buscar también por ID exacto
+        if search_stripped.isdigit():
+            query = query.where(
+                or_(
+                    Event.name.ilike(f"%{search_stripped}%"),
+                    Event.id == int(search_stripped),
+                )
+            )
+        else:
+            query = query.where(Event.name.ilike(f"%{search_stripped}%"))
+
+    # Filtro por rango de fechas
+    if from_date:
+        try:
+            query = query.where(Event.event_date >= date.fromisoformat(from_date))
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            query = query.where(Event.event_date <= date.fromisoformat(to_date))
+        except ValueError:
+            pass
 
     if role in ("admin", "super_admin", "coordinator"):
         # Admin ven todos los eventos; coordinadores solo los asignados a ellos
@@ -223,10 +253,6 @@ async def list_events(
         if event_status:
             query = query.where(Event.status == event_status)
 
-        # Lógica de visibilidad:
-        # - Si el evento tiene TODOS sus cupos cubiertos por invitaciones → solo ven los invitados
-        # - Si el evento tiene cupos libres (sin invitación) → visible para todos con el rol requerido
-        # - Si el evento no tiene ninguna invitación → visible para todos con el rol requerido
         from sqlalchemy import or_, and_, func as sqlfunc
 
         # Subquery: eventos donde el empleado tiene asignación activa
@@ -234,13 +260,6 @@ async def list_events(
             EventAssignment.user_id == user_id,
             EventAssignment.status.notin_(["removed", "rejected"]),
         )
-
-        # Subquery: eventos donde todos los cupos están cubiertos por invitaciones
-        # (para esos, solo los invitados pueden verlos)
-        # Un evento está "cerrado por invitaciones" si para CADA rol,
-        # el número de invitados >= slots_required
-        # Simplificamos: si el empleado tiene asignación, siempre puede ver el evento.
-        # Si no tiene asignación, puede ver el evento solo si hay cupos libres (no todos invitados).
 
         # Subquery: contar invitaciones activas por evento
         invited_count_sq = (
@@ -269,12 +288,10 @@ async def list_events(
             required_count_sq, required_count_sq.c.event_id == Event.id
         ).where(
             or_(
-                # El empleado ya tiene asignación → siempre puede ver
                 Event.id.in_(has_assignment),
-                # No todos los cupos están cubiertos por invitaciones → evento abierto
                 or_(
-                    invited_count_sq.c.invited_count == None,  # sin invitaciones
-                    invited_count_sq.c.invited_count < required_count_sq.c.total_required,  # cupos libres
+                    invited_count_sq.c.invited_count == None,
+                    invited_count_sq.c.invited_count < required_count_sq.c.total_required,
                 )
             )
         )
