@@ -734,6 +734,8 @@ async def bulk_invite(
             job_role_id=inv.job_role_id, status="invited", assigned_by=admin_id,
         )
         db.add(assignment)
+        await db.flush()
+        await db.refresh(assignment)
         created.append(inv.user_id)
 
         # Guardar datos del empleado/rol para notificaciones post-flush
@@ -762,6 +764,7 @@ async def bulk_invite(
                 "assignment": assignment,  # referencia para obtener el ID post-flush
             })
 
+    # Flush final para confirmar todo
     await db.flush()
 
     # Enviar notificaciones: email + WhatsApp + push por cada empleado invitado
@@ -788,6 +791,7 @@ async def bulk_invite(
             print(f"[NOTIF] Error enviando email a {task['email']}: {e}")
 
         # 2. WhatsApp al empleado
+        print(f"[WhatsApp] phone={task.get('phone')}, assignment_id={assignment_obj.id}")
         if task.get("phone"):
             try:
                 from app.services.whatsapp_service import send_whatsapp

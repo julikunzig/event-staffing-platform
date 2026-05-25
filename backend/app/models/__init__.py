@@ -14,7 +14,7 @@ from app.models.password_reset import PasswordResetToken
 from app.models.user_document import UserDocument
 from app.models.event_coordinator import EventCoordinator
 from app.models.event_document import EventDocument
-
+from app.models.news import News
 from app.models.push_subscription import PushSubscription
 
 __all__ = [
@@ -24,5 +24,5 @@ __all__ = [
     "Shift", "Notification", "EmployeeProfile", "EventRating",
     "PasswordResetToken", "UserDocument",
     "EventCoordinator", "EventDocument",
-    "PushSubscription",
+    "News", "PushSubscription",
 ]
