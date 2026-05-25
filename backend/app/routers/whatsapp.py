@@ -144,7 +144,7 @@ async def whatsapp_webhook(
                 f"If you change your mind, please contact us."
             )
 
-        # ── Notify admin by email ────────────────────────────────────────────
+        # ── Notify admin: email + push (no WhatsApp) ────────────────────────
         try:
             from app.models import UserCompanyMembership, Profile, JobRole as JR
             from app.services.email_service import send_invitation_response_email
@@ -167,6 +167,7 @@ async def whatsapp_webhook(
                 event_date_str = str(event_obj.event_date) if event_obj else ""
 
                 for admin in admins:
+                    # Email al admin
                     if admin.email:
                         await send_invitation_response_email(
                             admin_email=admin.email,
@@ -176,7 +177,21 @@ async def whatsapp_webhook(
                             event_date=event_date_str,
                             accepted=(action == "accept"),
                         )
-                        print(f"[WhatsApp] Admin notified: {admin.email} — {emp.name} {'accepted' if action == 'accept' else 'rejected'} {event_name}")
+                        print(f"[WhatsApp] Admin email sent: {admin.email} — {emp.name} {'accepted' if action == 'accept' else 'rejected'} {event_name}")
+                    # Push al admin
+                    try:
+                        from app.services.push_service import send_push_to_user
+                        icon = "✅" if action == "accept" else "❌"
+                        verb = "aceptó" if action == "accept" else "rechazó"
+                        await send_push_to_user(
+                            admin.id,
+                            f"{icon} {emp.name} {verb} la invitación",
+                            f"Evento: {event_name}",
+                            "/events",
+                            db,
+                        )
+                    except Exception as pe:
+                        print(f"[WhatsApp] Push error for admin {admin.id}: {pe}")
         except Exception as e:
             print(f"[WhatsApp] Error notifying admin: {e}")
 
