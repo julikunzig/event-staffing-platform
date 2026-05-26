@@ -450,9 +450,9 @@ class EmployeesByEventRow(BaseModel):
     employee_name: str
     phone: str | None
     job_role: str
-    hours_worked: Decimal
+    hours_worked: Decimal | None
     hourly_rate: Decimal
-    total_pay: Decimal
+    total_pay: Decimal | None
 
 
 @router.get("/employees-by-event", response_model=list[EmployeesByEventRow])
@@ -492,8 +492,8 @@ async def employees_by_event(
 
     employees_list = []
     for event, assignment, shift, role, user in rows:
-        hw = shift.hours_worked if shift else Decimal("0")
-        tp = shift.total_pay if shift else Decimal("0")
+        hw = (shift.hours_worked if shift and shift.hours_worked is not None else None)
+        tp = (shift.total_pay if shift and shift.total_pay is not None else None)
         rate = shift.hourly_rate_snapshot if shift else role.hourly_rate
 
         employees_list.append(EmployeesByEventRow(
@@ -518,9 +518,9 @@ async def employees_by_event(
                 row.employee_name,
                 row.phone or "",
                 row.job_role,
-                row.hours_worked,
+                row.hours_worked if row.hours_worked is not None else "Pendiente",
                 row.hourly_rate,
-                row.total_pay,
+                row.total_pay if row.total_pay is not None else "Pendiente",
             ])
         output.seek(0)
         return StreamingResponse(
