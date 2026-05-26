@@ -543,6 +543,7 @@ class ConsolidatedPaymentRow(BaseModel):
 
 
 @router.get("/consolidated-payments", response_model=list[ConsolidatedPaymentRow])
+@router.get("/payment-consolidation", response_model=list[ConsolidatedPaymentRow])
 async def consolidated_payments(
     current_user: AdminCoordDep,
     from_date: date = Query(..., alias="from_date"),
