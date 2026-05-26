@@ -7,7 +7,7 @@ from sqlalchemy import select
 from pydantic import BaseModel
 from decimal import Decimal
 from typing import Annotated
-from datetime import date, datetime
+from datetime import date, datetime, time
 from app.core.database import get_db
 from app.core.auth import require_role, get_current_user
 from app.models import Event, EventAssignment, Shift, JobRole, User
@@ -43,6 +43,8 @@ class EmployeeEventRow(BaseModel):
     event_id: int
     event_name: str
     event_date: date
+    event_start_time: time | None
+    event_end_time: time | None
     job_role: str
     hours_worked: Decimal | None
     hourly_rate: Decimal
@@ -281,6 +283,7 @@ async def report_by_employee(
 
         events_list.append(EmployeeEventRow(
             event_id=event.id, event_name=event.name, event_date=event.event_date,
+            event_start_time=event.start_time, event_end_time=event.end_time,
             job_role=role.name, hours_worked=hw, hourly_rate=rate,
             regular_pay=rp, overtime_pay=op, total_pay=tp,
         ))
@@ -295,11 +298,11 @@ async def report_by_employee(
     if format == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Evento", "Fecha", "Rol", "Horas", "Tarifa/h", "Pago Regular", "Overtime", "Total"])
+        writer.writerow(["Evento", "Fecha", "Hora Inicio", "Hora Fin", "Rol", "Horas", "Tarifa/h", "Pago Regular", "Overtime", "Total"])
         for e in events_list:
-            writer.writerow([e.event_name, e.event_date, e.job_role,
+            writer.writerow([e.event_name, e.event_date, e.event_start_time or "", e.event_end_time or "", e.job_role,
                              e.hours_worked, e.hourly_rate, e.regular_pay, e.overtime_pay, e.total_pay])
-        writer.writerow(["TOTAL", "", "", total_hours, "", "", "", total_pay])
+        writer.writerow(["TOTAL", "", "", "", "", total_hours, "", "", "", total_pay])
         output.seek(0)
         return StreamingResponse(output, media_type="text/csv",
                                  headers={"Content-Disposition": f"attachment; filename=employee_report.csv"})
@@ -350,6 +353,7 @@ async def report_by_employee_id(
 
         events_list.append(EmployeeEventRow(
             event_id=event.id, event_name=event.name, event_date=event.event_date,
+            event_start_time=event.start_time, event_end_time=event.end_time,
             job_role=role.name, hours_worked=hw, hourly_rate=rate,
             regular_pay=rp, overtime_pay=op, total_pay=tp,
         ))
@@ -364,11 +368,11 @@ async def report_by_employee_id(
     if format == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Evento", "Fecha", "Rol", "Horas", "Tarifa/h", "Pago Regular", "Overtime", "Total"])
+        writer.writerow(["Evento", "Fecha", "Hora Inicio", "Hora Fin", "Rol", "Horas", "Tarifa/h", "Pago Regular", "Overtime", "Total"])
         for e in events_list:
-            writer.writerow([e.event_name, e.event_date, e.job_role,
+            writer.writerow([e.event_name, e.event_date, e.event_start_time or "", e.event_end_time or "", e.job_role,
                              e.hours_worked, e.hourly_rate, e.regular_pay, e.overtime_pay, e.total_pay])
-        writer.writerow(["TOTAL", "", "", total_hours, "", "", "", total_pay])
+        writer.writerow(["TOTAL", "", "", "", "", total_hours, "", "", "", total_pay])
         output.seek(0)
         return StreamingResponse(output, media_type="text/csv",
                                  headers={"Content-Disposition": f"attachment; filename=employee_{user_id}_report.csv"})
@@ -414,6 +418,7 @@ async def my_report(
 
         events_list.append(EmployeeEventRow(
             event_id=event.id, event_name=event.name, event_date=event.event_date,
+            event_start_time=event.start_time, event_end_time=event.end_time,
             job_role=role.name, hours_worked=hw, hourly_rate=rate,
             regular_pay=shift.regular_pay if shift else None, overtime_pay=op, total_pay=tp,
         ))
@@ -428,11 +433,11 @@ async def my_report(
     if format == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Evento", "Fecha", "Rol", "Horas", "Tarifa/h", "Pago Regular", "Overtime", "Total"])
+        writer.writerow(["Evento", "Fecha", "Hora Inicio", "Hora Fin", "Rol", "Horas", "Tarifa/h", "Pago Regular", "Overtime", "Total"])
         for e in events_list:
-            writer.writerow([e.event_name, e.event_date, e.job_role,
+            writer.writerow([e.event_name, e.event_date, e.event_start_time or "", e.event_end_time or "", e.job_role,
                              e.hours_worked, e.hourly_rate, e.regular_pay, e.overtime_pay, e.total_pay])
-        writer.writerow(["TOTAL", "", "", total_hours, "", "", "", total_pay])
+        writer.writerow(["TOTAL", "", "", "", "", total_hours, "", "", "", total_pay])
         output.seek(0)
         return StreamingResponse(output, media_type="text/csv",
                                  headers={"Content-Disposition": f"attachment; filename=my_report.csv"})
@@ -446,6 +451,8 @@ async def my_report(
 
 class EmployeesByEventRow(BaseModel):
     event_date: date
+    event_start_time: time | None
+    event_end_time: time | None
     event_name: str
     employee_name: str
     phone: str | None
@@ -498,6 +505,8 @@ async def employees_by_event(
 
         employees_list.append(EmployeesByEventRow(
             event_date=event.event_date,
+            event_start_time=event.start_time,
+            event_end_time=event.end_time,
             event_name=event.name,
             employee_name=user.name,
             phone=user.phone,
@@ -510,10 +519,12 @@ async def employees_by_event(
     if format == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Fecha Evento", "Evento", "Empleado", "Teléfono", "Rol", "Horas Trabajadas", "Valor/Hora", "Valor Total a Pagar"])
+        writer.writerow(["Fecha Evento", "Hora Inicio", "Hora Fin", "Evento", "Empleado", "Teléfono", "Rol", "Horas Trabajadas", "Valor/Hora", "Valor Total a Pagar"])
         for row in employees_list:
             writer.writerow([
                 row.event_date,
+                row.event_start_time or "",
+                row.event_end_time or "",
                 row.event_name,
                 row.employee_name,
                 row.phone or "",

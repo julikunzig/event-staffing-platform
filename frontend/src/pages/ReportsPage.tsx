@@ -16,13 +16,15 @@ interface EmployeeReport { user_name: string; events: any[]; total_hours: string
 // Reporte 1: Listado de empleados por evento
 interface EmployeesByEventRow {
   event_date: string
+  event_start_time: string | null
+  event_end_time: string | null
   event_name: string
   employee_name: string
   phone: string | null
   job_role: string
-  hours_worked: string
+  hours_worked: string | null
   hourly_rate: string
-  total_pay: string
+  total_pay: string | null
 }
 
 // Reporte 2: Consolidado de pagos por empleado
@@ -456,6 +458,8 @@ export default function ReportsPage() {
                     {isEmployeesByEvent ? (
                       <>
                         <th className="text-left py-2 px-2">Fecha Evento</th>
+                        <th className="text-left py-2 px-2">Hora Inicio</th>
+                        <th className="text-left py-2 px-2">Hora Fin</th>
                         <th className="text-left py-2 px-2">Evento</th>
                         <th className="text-left py-2 px-2">Empleado</th>
                         <th className="text-left py-2 px-2">Teléfono</th>
@@ -475,6 +479,8 @@ export default function ReportsPage() {
                       <>
                         <th className="text-left py-2 px-2">Evento</th>
                         <th className="text-left py-2 px-2">Fecha</th>
+                        <th className="text-left py-2 px-2">Hora Inicio</th>
+                        <th className="text-left py-2 px-2">Hora Fin</th>
                         <th className="text-left py-2 px-2">Empleado</th>
                         <th className="text-left py-2 px-2">Rol</th>
                         <th className="text-right py-2 px-2">Horas</th>
@@ -484,6 +490,8 @@ export default function ReportsPage() {
                       <>
                         <th className="text-left py-2 px-2">Evento</th>
                         <th className="text-left py-2 px-2">Fecha</th>
+                        <th className="text-left py-2 px-2">Hora Inicio</th>
+                        <th className="text-left py-2 px-2">Hora Fin</th>
                         <th className="text-left py-2 px-2">Rol</th>
                         <th className="text-right py-2 px-2">Horas</th>
                         <th className="text-right py-2 px-2">Valor/Hora</th>
@@ -495,6 +503,8 @@ export default function ReportsPage() {
                       <>
                         <th className="text-left py-2 px-2">Evento</th>
                         <th className="text-left py-2 px-2">Fecha</th>
+                        <th className="text-left py-2 px-2">Hora Inicio</th>
+                        <th className="text-left py-2 px-2">Hora Fin</th>
                         <th className="text-left py-2 px-2">Rol</th>
                         <th className="text-right py-2 px-2">Horas</th>
                         <th className="text-right py-2 px-2">Total</th>
@@ -509,13 +519,15 @@ export default function ReportsPage() {
                         {isEmployeesByEvent ? (
                           <>
                             <td className="py-2 px-2">{row.event_date}</td>
+                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
+                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
                             <td className="py-2 px-2">{row.event_name}</td>
                             <td className="py-2 px-2">{row.employee_name}</td>
                             <td className="py-2 px-2">{row.phone || '—'}</td>
                             <td className="py-2 px-2">{row.job_role}</td>
-                            <td className="text-right py-2 px-2">{parseFloat(row.hours_worked).toFixed(2)}</td>
+                            <td className="text-right py-2 px-2">{row.hours_worked != null ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
                             <td className="text-right py-2 px-2">${parseFloat(row.hourly_rate).toFixed(2)}</td>
-                            <td className="text-right py-2 px-2 font-medium">${parseFloat(row.total_pay).toFixed(2)}</td>
+                            <td className="text-right py-2 px-2 font-medium">{row.total_pay != null ? `$${parseFloat(row.total_pay).toFixed(2)}` : '—'}</td>
                           </>
                         ) : isPaymentConsolidation ? (
                           <>
@@ -528,6 +540,8 @@ export default function ReportsPage() {
                           <>
                             <td className="py-2 px-2">{row.event_name}</td>
                             <td className="py-2 px-2">{row.event_date}</td>
+                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
+                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
                             <td className="py-2 px-2">{row.user_name}</td>
                             <td className="py-2 px-2">{row.job_role}</td>
                             <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
@@ -537,6 +551,8 @@ export default function ReportsPage() {
                           <>
                             <td className="py-2 px-2">{row.event_name}</td>
                             <td className="py-2 px-2">{row.event_date}</td>
+                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
+                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
                             <td className="py-2 px-2">{row.job_role}</td>
                             <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
                             <td className="text-right py-2 px-2">${parseFloat(row.hourly_rate).toFixed(2)}</td>
@@ -548,6 +564,8 @@ export default function ReportsPage() {
                           <>
                             <td className="py-2 px-2">{row.event_name}</td>
                             <td className="py-2 px-2">{row.event_date}</td>
+                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
+                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
                             <td className="py-2 px-2">{row.job_role}</td>
                             <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
                             <td className="text-right py-2 px-2 font-medium">${row.total_pay ? parseFloat(row.total_pay).toFixed(2) : '—'}</td>
