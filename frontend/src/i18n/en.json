@@ -330,7 +330,20 @@
     "goodEvening": "Good evening",
     "platform": "Platform",
     "version": "Version",
-    "quickAccess": "Quick access"
+    "quickAccess": "Quick access",
+    "eventsMonth": "Events this month",
+    "eventsUpcoming": "Upcoming",
+    "eventsCompleted": "Completed",
+    "eventsInProgress": "In progress",
+    "staffAssigned": "Staff assigned",
+    "hoursWorked": "Hours worked",
+    "totalPay": "Total payments",
+    "staffByRole": "Staff by role (month)",
+    "nextEvents": "Upcoming events",
+    "generalSummary": "General summary",
+    "totalEmployees": "Total employees",
+    "totalEventsAllTime": "Total events (all time)",
+    "eventsInProgressNow": "In progress now"
   },
   "push": {
     "enable": "Enable notifications",
