@@ -1,584 +1,446 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import api from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 import { isAdmin } from '@/lib/auth'
-import { Download, AlertCircle } from 'lucide-react'
+import { Download, BarChart2, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 
-interface EmployeeRow { user_name: string; job_role: string; hours_worked: string | null; hourly_rate: string; total_pay: string | null }
-interface EventReport { event_name: string; event_date: string; employees: EmployeeRow[]; total_hours: string; total_pay: string }
-interface EmployeeReport { user_name: string; events: any[]; total_hours: string; total_pay: string }
+const GREEN      = '#2db84b'
+const GREEN_DARK = '#1e9038'
 
-// Reporte 1: Listado de empleados por evento
-interface EmployeesByEventRow {
-  event_date: string
-  event_start_time: string | null
-  event_end_time: string | null
-  event_name: string
-  employee_name: string
-  phone: string | null
-  job_role: string
-  hours_worked: string | null
-  hourly_rate: string
-  total_pay: string | null
+const fieldStyle: React.CSSProperties = {
+  height: '40px', background: '#f9fafb', border: '1.5px solid #e5e7eb',
+  color: '#111827', borderRadius: '8px', fontSize: '13px', width: '100%',
+  padding: '0 12px', outline: 'none', fontFamily: "'Poppins',sans-serif",
+}
+const labelStyle: React.CSSProperties = {
+  fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em',
+  textTransform: 'uppercase', color: '#6b7280', margin: '0 0 5px', display: 'block',
 }
 
-// Reporte 2: Consolidado de pagos por empleado
-interface PaymentConsolidationRow {
-  employee_name: string
-  phone: string | null
-  total_hours: string
-  total_pay: string
-}
+// ── Date helpers ────────────────────────────────────────────────────────────
+const fmt = (d: Date) => d.toISOString().slice(0, 10)
+const today = () => { const d = new Date(); return fmt(d) }
+const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return fmt(d) }
+const monthStart = () => { const d = new Date(); return fmt(new Date(d.getFullYear(), d.getMonth(), 1)) }
+const monthEnd   = () => { const d = new Date(); return fmt(new Date(d.getFullYear(), d.getMonth() + 1, 0)) }
+const yearStart  = () => fmt(new Date(new Date().getFullYear(), 0, 1))
+const yearEnd    = ()  => fmt(new Date(new Date().getFullYear(), 11, 31))
+
+const DATE_PRESETS = [
+  { key: 'month', label: 'Mes actual',  from: monthStart,  to: monthEnd  },
+  { key: 'year',  label: 'Año actual',  from: yearStart,   to: yearEnd   },
+  { key: 'today', label: 'Hoy',         from: today,       to: today     },
+  { key: 'yesterday', label: 'Ayer',    from: yesterday,   to: yesterday },
+  { key: 'custom',label: 'Personalizado', from: () => '', to: () => '' },
+]
+
+const PAGE_SIZE = 20
+
+interface EmployeesByEventRow { event_date: string; event_start_time: string | null; event_end_time: string | null; event_name: string; employee_name: string; phone: string | null; job_role: string; hours_worked: string | null; hourly_rate: string; total_pay: string | null }
+interface PaymentConsolidationRow { employee_name: string; phone: string | null; total_hours: string; total_pay: string }
+
+type SortDir = 'asc' | 'desc' | null
 
 export default function ReportsPage() {
   const { user } = useAuth()
   const { t } = useTranslation()
-  
-  // Permitir admin, coordinador y empleado
   const isAdminOrCoord = isAdmin(user) || user?.role === 'coordinator'
   const isEmployee = user?.role === 'employee'
-  
-  if (!isAdminOrCoord && !isEmployee) {
-    return (
-      <div className="max-w-2xl">
-        <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-start gap-3">
-          <AlertCircle size={20} className="text-orange-600 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-orange-700">{t('reports.onlyAdminCanView')}</p>
-        </div>
-      </div>
-    )
+
+  const [tab, setTab] = useState<'event'|'employee'|'me'|'employees_by_event'|'payment_consolidation'>(isEmployee ? 'me' : 'event')
+  const [eventDate, setEventDate]           = useState('')
+  const [eventName, setEventName]           = useState('')
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [preset, setPreset]                 = useState('month')
+  const [fromDate, setFromDate]             = useState(monthStart)
+  const [toDate, setToDate]                 = useState(monthEnd)
+  const [report, setReport]                 = useState<any>(null)
+  const [loading, setLoading]               = useState(false)
+  const [error, setError]                   = useState('')
+
+  // Paginación
+  const [page, setPage] = useState(1)
+
+  // Sort
+  const [sortCol, setSortCol]   = useState<string | null>(null)
+  const [sortDir, setSortDir]   = useState<SortDir>(null)
+
+  const applyPreset = (key: string) => {
+    setPreset(key)
+    const p = DATE_PRESETS.find(p => p.key === key)
+    if (p && key !== 'custom') { setFromDate(p.from()); setToDate(p.to()) }
   }
 
-  const [tab, setTab] = useState<'event' | 'employee' | 'me' | 'employees_by_event' | 'payment_consolidation'>(isEmployee ? 'me' : 'event')
-  const [eventDate, setEventDate] = useState('')
-  const [eventName, setEventName] = useState('')
-  const [employeeSearch, setEmployeeSearch] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
-  const [report, setReport] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const isEBE = tab === 'employees_by_event'
+  const isPC  = tab === 'payment_consolidation'
+  const needsDates = tab !== 'event'
+  const canFetch = !(tab === 'event' && !eventDate) &&
+    !(tab === 'employee' && (!employeeSearch || !fromDate || !toDate)) &&
+    !((isEBE || isPC || tab === 'me') && (!fromDate || !toDate))
 
   const fetchReport = async () => {
-    setError('')
-    setLoading(true)
+    setError(''); setLoading(true); setPage(1); setSortCol(null); setSortDir(null)
     try {
       if (tab === 'event') {
-        const params = new URLSearchParams()
-        if (eventDate) params.append('event_date', eventDate)
-        if (eventName) params.append('event_name', eventName)
-        const r = await api.get<any>(`/reports/events?${params.toString()}`)
-        setReport(r.data)
+        const p = new URLSearchParams(); if (eventDate) p.append('event_date', eventDate); if (eventName) p.append('event_name', eventName)
+        setReport((await api.get<any>(`/reports/events?${p}`)).data)
       } else if (tab === 'employee') {
-        const params = new URLSearchParams()
-        if (employeeSearch) params.append('employee_search', employeeSearch)
-        if (fromDate) params.append('from', fromDate)
-        if (toDate) params.append('to', toDate)
-        const r = await api.get<EmployeeReport>(`/reports/employees?${params.toString()}`)
-        setReport(r.data)
+        const p = new URLSearchParams(); if (employeeSearch) p.append('employee_search', employeeSearch); if (fromDate) p.append('from', fromDate); if (toDate) p.append('to', toDate)
+        setReport((await api.get<any>(`/reports/employees?${p}`)).data)
       } else if (tab === 'me') {
-        const r = await api.get<EmployeeReport>(`/reports/me?from=${fromDate}&to=${toDate}`)
-        setReport(r.data)
-      } else if (tab === 'employees_by_event') {
-        const params = new URLSearchParams()
-        if (fromDate) params.append('from_date', fromDate)
-        if (toDate) params.append('to_date', toDate)
-        const r = await api.get<EmployeesByEventRow[]>(`/reports/employees-by-event?${params.toString()}`)
-        setReport(r.data)
-      } else if (tab === 'payment_consolidation') {
-        const params = new URLSearchParams()
-        if (fromDate) params.append('from_date', fromDate)
-        if (toDate) params.append('to_date', toDate)
-        const r = await api.get<PaymentConsolidationRow[]>(`/reports/payment-consolidation?${params.toString()}`)
-        setReport(r.data)
+        setReport((await api.get<any>(`/reports/me?from=${fromDate}&to=${toDate}`)).data)
+      } else if (isEBE) {
+        const p = new URLSearchParams(); if (fromDate) p.append('from_date', fromDate); if (toDate) p.append('to_date', toDate)
+        setReport((await api.get<EmployeesByEventRow[]>(`/reports/employees-by-event?${p}`)).data)
+      } else if (isPC) {
+        const p = new URLSearchParams(); if (fromDate) p.append('from_date', fromDate); if (toDate) p.append('to_date', toDate)
+        setReport((await api.get<PaymentConsolidationRow[]>(`/reports/payment-consolidation?${p}`)).data)
       }
-    } catch (e: any) {
-      setError(e.response?.data?.detail || t('common.error'))
-    } finally {
-      setLoading(false)
-    }
+    } catch (e: any) { setError(e.response?.data?.detail || t('common.error')) }
+    finally { setLoading(false) }
   }
 
-  const downloadCSV = async () => {
+  const download = async (format: 'csv'|'pdf'|'excel') => {
+    const mimes: Record<string,string> = { csv: 'text/csv', pdf: 'application/pdf', excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+    const exts:  Record<string,string> = { csv: 'csv', pdf: 'pdf', excel: 'xlsx' }
+    const p = new URLSearchParams(); p.append('format', format)
     let url = ''
-    if (tab === 'event') {
-      const params = new URLSearchParams()
-      if (eventDate) params.append('event_date', eventDate)
-      if (eventName) params.append('event_name', eventName)
-      params.append('format', 'csv')
-      url = `/reports/events?${params.toString()}`
-    } else if (tab === 'employee') {
-      const params = new URLSearchParams()
-      if (employeeSearch) params.append('employee_search', employeeSearch)
-      if (fromDate) params.append('from', fromDate)
-      if (toDate) params.append('to', toDate)
-      params.append('format', 'csv')
-      url = `/reports/employees?${params.toString()}`
-    } else if (tab === 'me') {
-      url = `/reports/me?from=${fromDate}&to=${toDate}&format=csv`
-    } else if (tab === 'employees_by_event') {
-      const params = new URLSearchParams()
-      if (fromDate) params.append('from_date', fromDate)
-      if (toDate) params.append('to_date', toDate)
-      params.append('format', 'csv')
-      url = `/reports/employees-by-event?${params.toString()}`
-    } else if (tab === 'payment_consolidation') {
-      const params = new URLSearchParams()
-      if (fromDate) params.append('from_date', fromDate)
-      if (toDate) params.append('to_date', toDate)
-      params.append('format', 'csv')
-      url = `/reports/payment-consolidation?${params.toString()}`
-    }
+    if (tab === 'event')       { if (eventDate) p.append('event_date', eventDate); if (eventName) p.append('event_name', eventName); url = `/reports/events?${p}` }
+    else if (tab === 'employee'){ if (employeeSearch) p.append('employee_search', employeeSearch); if (fromDate) p.append('from', fromDate); if (toDate) p.append('to', toDate); url = `/reports/employees?${p}` }
+    else if (tab === 'me')      { url = `/reports/me?from=${fromDate}&to=${toDate}&format=${format}` }
+    else if (isEBE)             { if (fromDate) p.append('from_date', fromDate); if (toDate) p.append('to_date', toDate); url = `/reports/employees-by-event?${p}` }
+    else if (isPC)              { if (fromDate) p.append('from_date', fromDate); if (toDate) p.append('to_date', toDate); url = `/reports/payment-consolidation?${p}` }
     try {
-      const response = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([response.data], { type: 'text/csv' })
+      const res = await api.get(url, { responseType: 'blob' })
       const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `report_${Date.now()}.csv`
-      link.click()
-      URL.revokeObjectURL(link.href)
-    } catch (e) {
-      setError(t('common.error'))
-    }
+      link.href = URL.createObjectURL(new Blob([res.data], { type: mimes[format] }))
+      link.download = `reporte_${Date.now()}.${exts[format]}`
+      link.click(); URL.revokeObjectURL(link.href)
+    } catch { setError(t('common.error')) }
   }
 
-  const downloadPDF = async () => {
-    let url = ''
-    if (tab === 'event') {
-      const params = new URLSearchParams()
-      if (eventDate) params.append('event_date', eventDate)
-      if (eventName) params.append('event_name', eventName)
-      params.append('format', 'pdf')
-      url = `/reports/events?${params.toString()}`
-    } else if (tab === 'employee') {
-      const params = new URLSearchParams()
-      if (employeeSearch) params.append('employee_search', employeeSearch)
-      if (fromDate) params.append('from', fromDate)
-      if (toDate) params.append('to', toDate)
-      params.append('format', 'pdf')
-      url = `/reports/employees?${params.toString()}`
-    } else if (tab === 'me') {
-      url = `/reports/me?from=${fromDate}&to=${toDate}&format=pdf`
-    } else if (tab === 'employees_by_event') {
-      const params = new URLSearchParams()
-      if (fromDate) params.append('from_date', fromDate)
-      if (toDate) params.append('to_date', toDate)
-      params.append('format', 'pdf')
-      url = `/reports/employees-by-event?${params.toString()}`
-    } else if (tab === 'payment_consolidation') {
-      const params = new URLSearchParams()
-      if (fromDate) params.append('from_date', fromDate)
-      if (toDate) params.append('to_date', toDate)
-      params.append('format', 'pdf')
-      url = `/reports/payment-consolidation?${params.toString()}`
-    }
-    try {
-      const response = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([response.data], { type: 'application/pdf' })
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `report_${Date.now()}.pdf`
-      link.click()
-      URL.revokeObjectURL(link.href)
-    } catch (e) {
-      setError(t('common.error'))
-    }
+  // ── Flatten report rows ──────────────────────────────────────────────────
+  const rawRows: any[] = useMemo(() => {
+    if (!report) return []
+    if (isEBE || isPC) return report
+    if (Array.isArray(report)) return report.flatMap((r: any) => r.employees.map((e: any) => ({ ...e, event_name: r.event_name, event_date: r.event_date, event_start_time: r.event_start_time, event_end_time: r.event_end_time })))
+    if ('events' in report) return report.events
+    if ('employees' in report) return report.employees
+    return []
+  }, [report, isEBE, isPC])
+
+  // ── Sort ─────────────────────────────────────────────────────────────────
+  const sortedRows = useMemo(() => {
+    if (!sortCol || !sortDir) return rawRows
+    return [...rawRows].sort((a, b) => {
+      const va = a[sortCol] ?? ''
+      const vb = b[sortCol] ?? ''
+      const na = parseFloat(va), nb = parseFloat(vb)
+      const cmp = !isNaN(na) && !isNaN(nb) ? na - nb : String(va).localeCompare(String(vb))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [rawRows, sortCol, sortDir])
+
+  // ── Paginate ─────────────────────────────────────────────────────────────
+  const totalPages  = Math.ceil(sortedRows.length / PAGE_SIZE)
+  const pagedRows   = sortedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // ── Column definitions ────────────────────────────────────────────────────
+  type ColDef = { label: string; key: string; right?: boolean; bold?: boolean; green?: boolean; dim?: boolean }
+  const cols: ColDef[] = isEBE
+    ? [
+        { label: 'Fecha',      key: 'event_date' },
+        { label: 'Inicio',     key: 'event_start_time' },
+        { label: 'Fin',        key: 'event_end_time' },
+        { label: 'Evento',     key: 'event_name', bold: true },
+        { label: 'Empleado',   key: 'employee_name' },
+        { label: 'Teléfono',   key: 'phone', dim: true },
+        { label: 'Rol',        key: 'job_role' },
+        { label: 'Horas',      key: 'hours_worked', right: true },
+        { label: 'Tarifa/h',   key: 'hourly_rate', right: true },
+        { label: 'Total',      key: 'total_pay', right: true, bold: true, green: true },
+      ]
+    : isPC
+    ? [
+        { label: 'Empleado',     key: 'employee_name', bold: true },
+        { label: 'Teléfono',     key: 'phone', dim: true },
+        { label: 'Total Horas',  key: 'total_hours', right: true },
+        { label: 'Total a Pagar',key: 'total_pay', right: true, bold: true, green: true },
+      ]
+    : Array.isArray(report)
+    ? [
+        { label: 'Evento',   key: 'event_name', bold: true },
+        { label: 'Fecha',    key: 'event_date' },
+        { label: 'Inicio',   key: 'event_start_time' },
+        { label: 'Fin',      key: 'event_end_time' },
+        { label: 'Empleado', key: 'user_name' },
+        { label: 'Rol',      key: 'job_role' },
+        { label: 'Horas',    key: 'hours_worked', right: true },
+        { label: 'Total',    key: 'total_pay', right: true, bold: true, green: true },
+      ]
+    : report && 'events' in report
+    ? [
+        { label: 'Evento',   key: 'event_name', bold: true },
+        { label: 'Fecha',    key: 'event_date' },
+        { label: 'Inicio',   key: 'event_start_time' },
+        { label: 'Fin',      key: 'event_end_time' },
+        { label: 'Rol',      key: 'job_role' },
+        { label: 'Horas',    key: 'hours_worked', right: true },
+        { label: 'Valor/h',  key: 'hourly_rate', right: true },
+        { label: 'Regular',  key: 'regular_pay', right: true },
+        { label: 'Overtime', key: 'overtime_pay', right: true },
+        { label: 'Total',    key: 'total_pay', right: true, bold: true, green: true },
+      ]
+    : [
+        { label: 'Evento', key: 'event_name', bold: true },
+        { label: 'Fecha',  key: 'event_date' },
+        { label: 'Inicio', key: 'event_start_time' },
+        { label: 'Fin',    key: 'event_end_time' },
+        { label: 'Rol',    key: 'job_role' },
+        { label: 'Horas',  key: 'hours_worked', right: true },
+        { label: 'Total',  key: 'total_pay', right: true, bold: true, green: true },
+      ]
+
+  const handleSort = (key: string) => {
+    if (sortCol !== key) { setSortCol(key); setSortDir('asc'); setPage(1) }
+    else if (sortDir === 'asc') { setSortDir('desc'); setPage(1) }
+    else { setSortCol(null); setSortDir(null) }
   }
 
-  const downloadExcel = async () => {
-    let url = ''
-    if (tab === 'event') {
-      const params = new URLSearchParams()
-      if (eventDate) params.append('event_date', eventDate)
-      if (eventName) params.append('event_name', eventName)
-      params.append('format', 'excel')
-      url = `/reports/events?${params.toString()}`
-    } else if (tab === 'employee') {
-      const params = new URLSearchParams()
-      if (employeeSearch) params.append('employee_search', employeeSearch)
-      if (fromDate) params.append('from', fromDate)
-      if (toDate) params.append('to', toDate)
-      params.append('format', 'excel')
-      url = `/reports/employees?${params.toString()}`
-    } else if (tab === 'me') {
-      url = `/reports/me?from=${fromDate}&to=${toDate}&format=excel`
-    } else if (tab === 'employees_by_event') {
-      const params = new URLSearchParams()
-      if (fromDate) params.append('from_date', fromDate)
-      if (toDate) params.append('to_date', toDate)
-      params.append('format', 'excel')
-      url = `/reports/employees-by-event?${params.toString()}`
-    } else if (tab === 'payment_consolidation') {
-      const params = new URLSearchParams()
-      if (fromDate) params.append('from_date', fromDate)
-      if (toDate) params.append('to_date', toDate)
-      params.append('format', 'excel')
-      url = `/reports/payment-consolidation?${params.toString()}`
-    }
-    try {
-      const response = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `report_${Date.now()}.xlsx`
-      link.click()
-      URL.revokeObjectURL(link.href)
-    } catch (e) {
-      setError(t('common.error'))
-    }
+  const SortIcon = ({ col }: { col: string }) => {
+    if (sortCol !== col) return <ChevronsUpDown size={11} style={{ opacity: 0.3 }} />
+    if (sortDir === 'asc')  return <ChevronUp   size={11} color={GREEN} />
+    return <ChevronDown size={11} color={GREEN} />
   }
 
-  const isEmployeesByEvent = tab === 'employees_by_event'
-  const isPaymentConsolidation = tab === 'payment_consolidation'
+  const fmtVal = (col: ColDef, row: any) => {
+    const v = row[col.key]
+    if (v == null || v === '') return '—'
+    if (col.green || col.key === 'total_pay' || col.key === 'total_hours' || col.key === 'hours_worked' || col.key === 'hourly_rate' || col.key === 'regular_pay' || col.key === 'overtime_pay') {
+      const n = parseFloat(v)
+      if (isNaN(n)) return v
+      if (col.key === 'hours_worked' || col.key === 'total_hours') return n.toFixed(2)
+      return `$${n.toFixed(2)}`
+    }
+    return v
+  }
+
+  // Totals
+  const totalHours = rawRows.reduce((s, r) => s + parseFloat(isEBE ? (r.hours_worked||0) : (r.total_hours||r.hours_worked||0)), 0)
+  const totalPay   = rawRows.reduce((s, r) => s + parseFloat(r.total_pay||0), 0)
+
+  const TABS = [
+    ...(isAdminOrCoord ? [
+      { key: 'event',                 label: t('reports.byEvent') },
+      { key: 'employee',              label: t('reports.byEmployee') },
+      { key: 'employees_by_event',    label: t('reports.eventsByDates') },
+      { key: 'payment_consolidation', label: t('reports.paymentConsolidation') },
+    ] : []),
+    ...(isEmployee ? [{ key: 'me', label: t('reports.myReport') }] : []),
+  ]
+
+  if (!isAdminOrCoord && !isEmployee) return (
+    <div style={{ maxWidth: '600px', fontFamily: "'Poppins',sans-serif" }}>
+      <div style={{ display: 'flex', gap: '10px', padding: '14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px' }}>
+        <AlertCircle size={18} color="#c2410c" style={{ flexShrink: 0 }} />
+        <p style={{ margin: 0, fontSize: '13px', color: '#c2410c' }}>{t('reports.onlyAdminCanView')}</p>
+      </div>
+    </div>
+  )
 
   return (
-    <div className="max-w-6xl">
-      <h2 className="text-2xl font-bold text-slate-900 mb-6">{t('nav.reports')}</h2>
+    <div style={{ maxWidth: '1100px', fontFamily: "'Poppins',sans-serif" }}>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-        {[
-          ...(isAdminOrCoord ? [
-            { key: 'event', label: t('reports.byEvent') },
-            { key: 'employee', label: t('reports.byEmployee') },
-            { key: 'employees_by_event', label: t('reports.eventsByDates') },
-            { key: 'payment_consolidation', label: t('reports.paymentConsolidation') },
-          ] : []),
-          ...(isEmployee ? [{ key: 'me', label: t('reports.myReport') }] : []),
-        ].map(tab_item => (
-          <Button
-            key={tab_item.key}
-            variant={tab === tab_item.key ? 'default' : 'outline'}
-            onClick={() => {
-              setTab(tab_item.key as any)
-              setReport(null)
-            }}
-            className="whitespace-nowrap flex-shrink-0"
-          >
-            {tab_item.label}
-          </Button>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+        <BarChart2 size={22} color={GREEN} />
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>{t('nav.reports')}</h2>
+          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>Genera y descarga reportes</p>
+        </div>
+      </div>
+
+      {/* Report type tabs */}
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px' }}>
+        {TABS.map(tb => (
+          <button key={tb.key} onClick={() => { setTab(tb.key as any); setReport(null); setPage(1) }}
+            style={{ padding: '7px 14px', borderRadius: '999px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, fontFamily: "'Poppins',sans-serif", transition: 'all 0.15s', whiteSpace: 'nowrap', background: tab === tb.key ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#fff', color: tab === tb.key ? '#fff' : '#374151', border: tab === tb.key ? 'none' : '1.5px solid #e5e7eb', boxShadow: tab === tb.key ? '0 2px 8px rgba(45,184,75,0.25)' : 'none' }}>
+            {tb.label}
+          </button>
         ))}
       </div>
 
-      {/* Filtros */}
-      <Card className="mb-6">
-        <CardContent className="pt-6 space-y-4">
-          {/* Reporte "Por Evento" */}
-          {tab === 'event' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('reports.eventDate')} *</Label>
-                <Input
-                  type="date"
-                  value={eventDate}
-                  onChange={e => setEventDate(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('reports.eventName')} ({t('common.optional')})</Label>
-                <Input
-                  value={eventName}
-                  onChange={e => setEventName(e.target.value)}
-                  placeholder={t('reports.eventNamePlaceholder') || "Nombre del evento"}
-                />
-              </div>
+      {/* Filters */}
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', padding: '20px', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+
+        {/* Date presets — shown when tab uses dates */}
+        {needsDates && (
+          <div style={{ marginBottom: '14px' }}>
+            <label style={labelStyle}>Período</label>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {DATE_PRESETS.map(p => (
+                <button key={p.key} onClick={() => applyPreset(p.key)}
+                  style={{ padding: '5px 12px', borderRadius: '999px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, fontFamily: "'Poppins',sans-serif", transition: 'all 0.15s', background: preset === p.key ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#f9fafb', color: preset === p.key ? '#fff' : '#374151', border: preset === p.key ? 'none' : '1.5px solid #e5e7eb' }}>
+                  {p.label}
+                </button>
+              ))}
             </div>
-          )}
-
-          {/* Reporte "Por Empleado" */}
-          {tab === 'employee' && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>{t('reports.employee')} *</Label>
-                <Input
-                  value={employeeSearch}
-                  onChange={e => setEmployeeSearch(e.target.value)}
-                  placeholder={t('reports.employeePlaceholder') || "Nombre, email o teléfono"}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('reports.from')} *</Label>
-                <Input
-                  type="date"
-                  value={fromDate}
-                  onChange={e => setFromDate(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('reports.to')} *</Label>
-                <Input
-                  type="date"
-                  value={toDate}
-                  onChange={e => setToDate(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Reporte "Mi Reporte" */}
-          {tab === 'me' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('reports.from')} *</Label>
-                <Input
-                  type="date"
-                  value={fromDate}
-                  onChange={e => setFromDate(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('reports.to')} *</Label>
-                <Input
-                  type="date"
-                  value={toDate}
-                  onChange={e => setToDate(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Reporte "Eventos por Fechas" */}
-          {tab === 'employees_by_event' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('reports.from')} *</Label>
-                <Input
-                  type="date"
-                  value={fromDate}
-                  onChange={e => setFromDate(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('reports.to')} *</Label>
-                <Input
-                  type="date"
-                  value={toDate}
-                  onChange={e => setToDate(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Reporte "Consolidado de Pagos" */}
-          {tab === 'payment_consolidation' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('reports.from')} *</Label>
-                <Input
-                  type="date"
-                  value={fromDate}
-                  onChange={e => setFromDate(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('reports.to')} *</Label>
-                <Input
-                  type="date"
-                  value={toDate}
-                  onChange={e => setToDate(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-          )}
-
-          {error && <p className="text-sm text-red-500">{error}</p>}
-
-          <div className="flex gap-2 pt-2">
-            <Button
-              onClick={fetchReport}
-              disabled={loading || (tab === 'event' && !eventDate) || (tab === 'employee' && (!employeeSearch || !fromDate || !toDate)) || ((tab === 'employees_by_event' || tab === 'payment_consolidation') && (!fromDate || !toDate)) || (tab === 'me' && (!fromDate || !toDate))}
-            >
-              {loading ? t('common.loading') : t('reports.generate')}
-            </Button>
-            {report && (
-              <>
-                <Button variant="outline" onClick={downloadCSV} className="gap-2">
-                  <Download size={16} /> {t('reports.downloadCSV')}
-                </Button>
-                <Button variant="outline" onClick={downloadPDF} className="gap-2">
-                  <Download size={16} /> {t('reports.downloadPDF')}
-                </Button>
-                <Button variant="outline" onClick={downloadExcel} className="gap-2">
-                  <Download size={16} /> {t('reports.downloadExcel')}
-                </Button>
-              </>
-            )}
           </div>
-        </CardContent>
-      </Card>
+        )}
 
-      {/* Resultados */}
-      {report && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {isEmployeesByEvent
-                ? t('reports.eventsByDates')
-                : isPaymentConsolidation
-                  ? t('reports.paymentConsolidation')
-                  : Array.isArray(report)
-                    ? t('reports.byEvent')
-                    : 'event_name' in report
-                      ? report.event_name
-                      : report.user_name}
-            </CardTitle>
-            {!isEmployeesByEvent && !isPaymentConsolidation && !Array.isArray(report) && (
-              <p className="text-sm text-gray-500">
-                {t('reports.totalHours')}: {parseFloat(report.total_hours).toFixed(2)}h — {t('reports.totalPay')}: $
-                {parseFloat(report.total_pay).toFixed(2)}
-              </p>
-            )}
-            {(isEmployeesByEvent || isPaymentConsolidation) && Array.isArray(report) && (
-              <p className="text-sm text-gray-500">
-                {t('reports.totalHours')}: {report.reduce((sum: number, row: any) => sum + parseFloat(isEmployeesByEvent ? (row.hours_worked || 0) : (row.total_hours || 0)), 0).toFixed(2)}h — {t('reports.totalPay')}: $
-                {report.reduce((sum: number, row: any) => sum + parseFloat(row.total_pay || 0), 0).toFixed(2)}
-              </p>
-            )}
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-gray-500 font-medium">
-                    {isEmployeesByEvent ? (
-                      <>
-                        <th className="text-left py-2 px-2">Fecha Evento</th>
-                        <th className="text-left py-2 px-2">Hora Inicio</th>
-                        <th className="text-left py-2 px-2">Hora Fin</th>
-                        <th className="text-left py-2 px-2">Evento</th>
-                        <th className="text-left py-2 px-2">Empleado</th>
-                        <th className="text-left py-2 px-2">Teléfono</th>
-                        <th className="text-left py-2 px-2">Rol</th>
-                        <th className="text-right py-2 px-2">Horas</th>
-                        <th className="text-right py-2 px-2">Tarifa/h</th>
-                        <th className="text-right py-2 px-2">Total</th>
-                      </>
-                    ) : isPaymentConsolidation ? (
-                      <>
-                        <th className="text-left py-2 px-2">Empleado</th>
-                        <th className="text-left py-2 px-2">Teléfono</th>
-                        <th className="text-right py-2 px-2">Total Horas</th>
-                        <th className="text-right py-2 px-2">Total a Pagar</th>
-                      </>
-                    ) : Array.isArray(report) ? (
-                      <>
-                        <th className="text-left py-2 px-2">Evento</th>
-                        <th className="text-left py-2 px-2">Fecha</th>
-                        <th className="text-left py-2 px-2">Hora Inicio</th>
-                        <th className="text-left py-2 px-2">Hora Fin</th>
-                        <th className="text-left py-2 px-2">Empleado</th>
-                        <th className="text-left py-2 px-2">Rol</th>
-                        <th className="text-right py-2 px-2">Horas</th>
-                        <th className="text-right py-2 px-2">Total</th>
-                      </>
-                    ) : 'events' in report ? (
-                      <>
-                        <th className="text-left py-2 px-2">Evento</th>
-                        <th className="text-left py-2 px-2">Fecha</th>
-                        <th className="text-left py-2 px-2">Hora Inicio</th>
-                        <th className="text-left py-2 px-2">Hora Fin</th>
-                        <th className="text-left py-2 px-2">Rol</th>
-                        <th className="text-right py-2 px-2">Horas</th>
-                        <th className="text-right py-2 px-2">Valor/Hora</th>
-                        <th className="text-right py-2 px-2">Pago Regular</th>
-                        <th className="text-right py-2 px-2">Overtime</th>
-                        <th className="text-right py-2 px-2">Total</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="text-left py-2 px-2">Evento</th>
-                        <th className="text-left py-2 px-2">Fecha</th>
-                        <th className="text-left py-2 px-2">Hora Inicio</th>
-                        <th className="text-left py-2 px-2">Hora Fin</th>
-                        <th className="text-left py-2 px-2">Rol</th>
-                        <th className="text-right py-2 px-2">Horas</th>
-                        <th className="text-right py-2 px-2">Total</th>
-                      </>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(isEmployeesByEvent || isPaymentConsolidation ? report : Array.isArray(report) ? report.flatMap((r: any) => r.employees.map((e: any) => ({ ...e, event_name: r.event_name, event_date: r.event_date }))) : 'events' in report ? report.events : 'employees' in report ? report.employees : report.events).map(
-                    (row: any, i: number) => (
-                      <tr key={i} className="border-b hover:bg-gray-50">
-                        {isEmployeesByEvent ? (
-                          <>
-                            <td className="py-2 px-2">{row.event_date}</td>
-                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
-                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
-                            <td className="py-2 px-2">{row.event_name}</td>
-                            <td className="py-2 px-2">{row.employee_name}</td>
-                            <td className="py-2 px-2">{row.phone || '—'}</td>
-                            <td className="py-2 px-2">{row.job_role}</td>
-                            <td className="text-right py-2 px-2">{row.hours_worked != null ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
-                            <td className="text-right py-2 px-2">${parseFloat(row.hourly_rate).toFixed(2)}</td>
-                            <td className="text-right py-2 px-2 font-medium">{row.total_pay != null ? `$${parseFloat(row.total_pay).toFixed(2)}` : '—'}</td>
-                          </>
-                        ) : isPaymentConsolidation ? (
-                          <>
-                            <td className="py-2 px-2">{row.employee_name}</td>
-                            <td className="py-2 px-2">{row.phone || '—'}</td>
-                            <td className="text-right py-2 px-2">{parseFloat(row.total_hours).toFixed(2)}</td>
-                            <td className="text-right py-2 px-2 font-medium">${parseFloat(row.total_pay).toFixed(2)}</td>
-                          </>
-                        ) : Array.isArray(report) ? (
-                          <>
-                            <td className="py-2 px-2">{row.event_name}</td>
-                            <td className="py-2 px-2">{row.event_date}</td>
-                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
-                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
-                            <td className="py-2 px-2">{row.user_name}</td>
-                            <td className="py-2 px-2">{row.job_role}</td>
-                            <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
-                            <td className="text-right py-2 px-2 font-medium">${row.total_pay ? parseFloat(row.total_pay).toFixed(2) : '—'}</td>
-                          </>
-                        ) : 'events' in report ? (
-                          <>
-                            <td className="py-2 px-2">{row.event_name}</td>
-                            <td className="py-2 px-2">{row.event_date}</td>
-                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
-                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
-                            <td className="py-2 px-2">{row.job_role}</td>
-                            <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
-                            <td className="text-right py-2 px-2">${parseFloat(row.hourly_rate).toFixed(2)}</td>
-                            <td className="text-right py-2 px-2">${row.regular_pay ? parseFloat(row.regular_pay).toFixed(2) : '—'}</td>
-                            <td className="text-right py-2 px-2">${row.overtime_pay ? parseFloat(row.overtime_pay).toFixed(2) : '—'}</td>
-                            <td className="text-right py-2 px-2 font-medium">${row.total_pay ? parseFloat(row.total_pay).toFixed(2) : '—'}</td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="py-2 px-2">{row.event_name}</td>
-                            <td className="py-2 px-2">{row.event_date}</td>
-                            <td className="py-2 px-2">{row.event_start_time || '—'}</td>
-                            <td className="py-2 px-2">{row.event_end_time || '—'}</td>
-                            <td className="py-2 px-2">{row.job_role}</td>
-                            <td className="text-right py-2 px-2">{row.hours_worked ? parseFloat(row.hours_worked).toFixed(2) : '—'}</td>
-                            <td className="text-right py-2 px-2 font-medium">${row.total_pay ? parseFloat(row.total_pay).toFixed(2) : '—'}</td>
-                          </>
-                        )}
-                      </tr>
-                    )
-                  )}
-                </tbody>
-              </table>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: '12px', marginBottom: '14px' }}>
+          {tab === 'event' && (<>
+            <div><label style={labelStyle}>{t('reports.eventDate')} *</label><input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} style={fieldStyle} /></div>
+            <div><label style={labelStyle}>{t('reports.eventName')}</label><input value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Nombre del evento" style={fieldStyle} /></div>
+          </>)}
+          {tab === 'employee' && (
+            <div style={{ gridColumn: '1/-1' }}>
+              <label style={labelStyle}>{t('reports.employee')} *</label>
+              <input value={employeeSearch} onChange={e => setEmployeeSearch(e.target.value)} placeholder="Nombre, email o teléfono" style={fieldStyle} />
             </div>
-          </CardContent>
-        </Card>
+          )}
+          {needsDates && (preset === 'custom' || tab === 'employee') && (<>
+            <div><label style={labelStyle}>{t('reports.from')} *</label><input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPreset('custom') }} style={fieldStyle} /></div>
+            <div><label style={labelStyle}>{t('reports.to')} *</label><input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPreset('custom') }} style={fieldStyle} /></div>
+          </>)}
+          {needsDates && preset !== 'custom' && tab !== 'employee' && (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ flex: 1 }}><label style={labelStyle}>{t('reports.from')}</label><input type="date" value={fromDate} readOnly style={{ ...fieldStyle, opacity: 0.7, cursor: 'default' }} /></div>
+              <div style={{ flex: 1 }}><label style={labelStyle}>{t('reports.to')}</label><input type="date" value={toDate} readOnly style={{ ...fieldStyle, opacity: 0.7, cursor: 'default' }} /></div>
+            </div>
+          )}
+        </div>
+
+        {error && <div style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', fontSize: '13px', marginBottom: '12px' }}>⚠ {error}</div>}
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={fetchReport} disabled={loading || !canFetch}
+            style={{ padding: '9px 20px', borderRadius: '9px', border: 'none', background: !canFetch ? '#e5e7eb' : `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: !canFetch ? '#9ca3af' : '#fff', fontSize: '13px', fontWeight: 700, cursor: !canFetch ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif", boxShadow: canFetch ? '0 2px 8px rgba(45,184,75,0.2)' : 'none' }}>
+            {loading ? t('common.loading') : t('reports.generate')}
+          </button>
+          {report && (
+            <>
+              <div style={{ width: '1px', height: '24px', background: '#e5e7eb' }} />
+              {(['csv','pdf','excel'] as const).map(fmt => (
+                <button key={fmt} onClick={() => download(fmt)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 12px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: '#374151', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                  <Download size={13} />{fmt.toUpperCase()}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Results table */}
+      {report && rawRows.length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+
+          {/* Table header summary */}
+          <div style={{ padding: '12px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#111827' }}>
+                {isEBE ? t('reports.eventsByDates') : isPC ? t('reports.paymentConsolidation') : Array.isArray(report) ? t('reports.byEvent') : 'event_name' in report ? report.event_name : report.user_name}
+              </p>
+              <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#9ca3af' }}>
+                {rawRows.length} registros · página {page} de {totalPages}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '16px' }}>
+              {totalHours > 0 && <div style={{ textAlign: 'right' }}>
+                <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('reports.totalHours')}</p>
+                <p style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#111827' }}>{totalHours.toFixed(2)}h</p>
+              </div>}
+              {totalPay > 0 && <div style={{ textAlign: 'right' }}>
+                <p style={{ margin: 0, fontSize: '10px', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('reports.totalPay')}</p>
+                <p style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: GREEN }}>${totalPay.toFixed(2)}</p>
+              </div>}
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ background: '#f9fafb' }}>
+                  {cols.map(col => (
+                    <th key={col.key} onClick={() => handleSort(col.key)}
+                      style={{ padding: '10px 12px', textAlign: col.right ? 'right' : 'left', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: sortCol === col.key ? GREEN : '#6b7280', borderBottom: '1px solid #e5e7eb', cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        {col.label}<SortIcon col={col.key} />
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pagedRows.map((row, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f9fafb'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+                    {cols.map(col => (
+                      <td key={col.key} style={{ padding: '10px 12px', textAlign: col.right ? 'right' : 'left', fontWeight: col.bold ? 600 : 400, color: col.green ? GREEN : col.dim ? '#9ca3af' : '#374151', whiteSpace: col.key === 'event_name' || col.key === 'employee_name' ? 'nowrap' : undefined }}>
+                        {fmtVal(col, row)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+              {/* Footer totals */}
+              {sortedRows.length > 1 && (
+                <tfoot>
+                  <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0' }}>
+                    {cols.map((col, i) => (
+                      <td key={col.key} style={{ padding: '10px 12px', textAlign: col.right ? 'right' : 'left', fontWeight: 700, fontSize: '12px', color: '#111827' }}>
+                        {i === 0 ? `Total (${rawRows.length})` :
+                          col.key === 'hours_worked' || col.key === 'total_hours' ? rawRows.reduce((s, r) => s + parseFloat(r[col.key]||0), 0).toFixed(2) :
+                          col.key === 'total_pay' ? `$${rawRows.reduce((s, r) => s + parseFloat(r[col.key]||0), 0).toFixed(2)}` :
+                          col.key === 'regular_pay' ? `$${rawRows.reduce((s, r) => s + parseFloat(r[col.key]||0), 0).toFixed(2)}` :
+                          col.key === 'overtime_pay' ? `$${rawRows.reduce((s, r) => s + parseFloat(r[col.key]||0), 0).toFixed(2)}` : ''}
+                      </td>
+                    ))}
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid #f3f4f6' }}>
+              <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>
+                Mostrando {(page-1)*PAGE_SIZE+1}–{Math.min(page*PAGE_SIZE, sortedRows.length)} de {sortedRows.length}
+              </p>
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <button onClick={() => setPage(1)} disabled={page === 1}
+                  style={{ padding: '5px 8px', borderRadius: '7px', border: '1.5px solid #e5e7eb', background: '#fff', color: page === 1 ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: page === 1 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>«</button>
+                <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+                  style={{ padding: '5px 10px', borderRadius: '7px', border: '1.5px solid #e5e7eb', background: '#fff', color: page === 1 ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: page === 1 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>‹</button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const start = Math.max(1, Math.min(page - 2, totalPages - 4))
+                  const n = start + i
+                  return n <= totalPages ? (
+                    <button key={n} onClick={() => setPage(n)}
+                      style={{ width: '30px', height: '30px', borderRadius: '7px', border: 'none', background: page === n ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#fff', border: page === n ? 'none' : '1.5px solid #e5e7eb', color: page === n ? '#fff' : '#374151', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                      {n}
+                    </button>
+                  ) : null
+                })}
+                <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}
+                  style={{ padding: '5px 10px', borderRadius: '7px', border: '1.5px solid #e5e7eb', background: '#fff', color: page === totalPages ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>›</button>
+                <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
+                  style={{ padding: '5px 8px', borderRadius: '7px', border: '1.5px solid #e5e7eb', background: '#fff', color: page === totalPages ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>»</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {report && rawRows.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '3rem', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', color: '#9ca3af', fontSize: '13px' }}>
+          No se encontraron registros para el período seleccionado.
+        </div>
       )}
     </div>
   )

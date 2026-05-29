@@ -324,7 +324,13 @@
     "newsDesc": "Manage news",
     "companyDesc": "Company settings",
     "companiesDesc": "Manage companies",
-    "accountDesc": "Profile, documents and roles"
+    "accountDesc": "Profile, documents and roles",
+    "goodMorning": "Good morning",
+    "goodAfternoon": "Good afternoon",
+    "goodEvening": "Good evening",
+    "platform": "Platform",
+    "version": "Version",
+    "quickAccess": "Quick access"
   },
   "push": {
     "enable": "Enable notifications",

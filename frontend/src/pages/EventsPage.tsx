@@ -3,11 +3,15 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/context/AuthContext'
 import { isAdmin } from '@/lib/auth'
 import api from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
 import { Input } from '@/components/ui/input'
 import { Plus, MapPin, Clock, Shirt, Pencil, Calendar, List, Search, ChevronLeft, ChevronRight, X } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import EventFormModal from '@/pages/EventFormModal'
+import EventDetailModal from '@/pages/EventDetailModal'
+
+const GREEN      = '#2db84b'
+const GREEN_DARK = '#1e9038'
 
 interface Event {
   id: number; name: string; event_date: string; start_time: string
@@ -15,192 +19,134 @@ interface Event {
   state: string | null; zip_code: string | null
   dress_code: string | null; status: string
 }
-
 interface Assignment { id: number; event_id: number; status: string; job_role_id: number }
 
 // ── Status helpers ──────────────────────────────────────────────────────────
-function getEventStatusMap(t: any): Record<string, { label: string; color: string; shortLabel: string; dot: string }> {
+function getEventStatusMap(t: any) {
   return {
-    created:        { label: t('events.status.created'),   shortLabel: t('events.status.created'),   color: 'bg-slate-100 text-slate-700 border-slate-300',   dot: 'bg-slate-400' },
-    published:      { label: t('events.status.published'), shortLabel: t('events.status.published'), color: 'bg-blue-100 text-blue-700 border-blue-300',       dot: 'bg-blue-500' },
-    filled_pending: { label: t('events.status.filled') + ' - ' + t('events.assignmentStatus.pending'), shortLabel: t('events.assignmentStatus.pending'), color: 'bg-amber-100 text-amber-700 border-amber-300', dot: 'bg-amber-500' },
-    filled:         { label: t('events.status.filled'),    shortLabel: t('events.status.filled'),    color: 'bg-emerald-100 text-emerald-700 border-emerald-300', dot: 'bg-emerald-500' },
-    started:        { label: t('events.status.started'),   shortLabel: t('events.status.started'),   color: 'bg-yellow-100 text-yellow-700 border-yellow-300', dot: 'bg-yellow-500' },
-    finished:       { label: t('events.status.finished'),  shortLabel: t('events.status.finished'),  color: 'bg-teal-100 text-teal-700 border-teal-300',       dot: 'bg-teal-600' },
-    cancelled:      { label: t('events.status.cancelled'), shortLabel: t('events.status.cancelled'), color: 'bg-red-100 text-red-700 border-red-300',           dot: 'bg-red-500' },
+    created:        { label: t('events.status.created'),   shortLabel: t('events.status.created'),   bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db', dot: '#9ca3af' },
+    published:      { label: t('events.status.published'), shortLabel: t('events.status.published'), bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', dot: '#3b82f6' },
+    filled_pending: { label: t('events.status.filledPending') || 'Llenado Pend.', shortLabel: t('events.assignmentStatus.pending'), bg: '#fffbeb', color: '#b45309', border: '#fde68a', dot: '#f59e0b' },
+    filled:         { label: t('events.status.filled'),    shortLabel: t('events.status.filled'),    bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', dot: GREEN },
+    started:        { label: t('events.status.started'),   shortLabel: t('events.status.started'),   bg: '#fefce8', color: '#854d0e', border: '#fef08a', dot: '#eab308' },
+    finished:       { label: t('events.status.finished'),  shortLabel: t('events.status.finished'),  bg: '#f0fdfa', color: '#0f766e', border: '#99f6e4', dot: '#0d9488' },
+    cancelled:      { label: t('events.status.cancelled'), shortLabel: t('events.status.cancelled'), bg: '#fef2f2', color: '#dc2626', border: '#fecaca', dot: '#ef4444' },
   }
 }
 
-function getAssignStatusMap(t: any): Record<string, { label: string; color: string; shortLabel: string }> {
+function getAssignStatusMap(t: any) {
   return {
-    pending:  { label: t('events.assignmentStatus.pending'),  shortLabel: t('events.assignmentStatus.pending'),  color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
-    invited:  { label: t('events.assignmentStatus.invited'),  shortLabel: t('events.assignmentStatus.invited'),  color: 'bg-orange-100 text-orange-700 border-orange-300' },
-    approved: { label: t('events.assignmentStatus.approved'), shortLabel: t('events.assignmentStatus.approved'), color: 'bg-green-100 text-green-700 border-green-300' },
-    rejected: { label: t('events.assignmentStatus.rejected'), shortLabel: t('events.assignmentStatus.rejected'), color: 'bg-red-100 text-red-700 border-red-300' },
-    removed:  { label: t('events.assignmentStatus.removed'),  shortLabel: t('events.assignmentStatus.removed'),  color: 'bg-gray-100 text-gray-500 border-gray-300' },
+    pending:  { label: t('events.assignmentStatus.pending'),  shortLabel: t('events.assignmentStatus.pending'),  bg: '#fffbeb', color: '#b45309', border: '#fde68a' },
+    invited:  { label: t('events.assignmentStatus.invited'),  shortLabel: t('events.assignmentStatus.invited'),  bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' },
+    approved: { label: t('events.assignmentStatus.approved'), shortLabel: t('events.assignmentStatus.approved'), bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
+    rejected: { label: t('events.assignmentStatus.rejected'), shortLabel: t('events.assignmentStatus.rejected'), bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
+    removed:  { label: t('events.assignmentStatus.removed'),  shortLabel: t('events.assignmentStatus.removed'),  bg: '#f9fafb', color: '#9ca3af', border: '#e5e7eb' },
   }
 }
 
-function StatusBadge({ status, map, mobile = false }: { status: string; map: Record<string, any>; mobile?: boolean }) {
-  const s = map[status] || { label: status, shortLabel: status, color: 'bg-gray-100 text-gray-600 border-gray-300' }
+function StatusPill({ status, map }: { status: string; map: Record<string, any> }) {
+  const s = map[status] || { shortLabel: status, bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }
   return (
-    <span className={`text-[10px] lg:text-xs font-medium px-2 py-1 rounded-full border ${s.color} whitespace-nowrap`}>
-      {mobile ? s.shortLabel : s.label}
+    <span style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}`, fontSize: '11px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', whiteSpace: 'nowrap', fontFamily: "'Poppins',sans-serif" }}>
+      {s.shortLabel}
     </span>
   )
+}
+
+function statusAccent(status: string) {
+  const map: Record<string, string> = {
+    published: '#3b82f6', filled: GREEN, started: '#eab308',
+    finished: '#0d9488', cancelled: '#ef4444', filled_pending: '#f59e0b',
+  }
+  return map[status] || '#d1d5db'
 }
 
 // ── Calendar helpers ────────────────────────────────────────────────────────
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December']
-const DAYS_ES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb']
-const DAYS_EN = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-
-function getDaysInMonth(year: number, month: number) {
-  return new Date(year, month + 1, 0).getDate()
-}
-function getFirstDayOfMonth(year: number, month: number) {
-  return new Date(year, month, 1).getDay()
-}
+const DAYS_ES   = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb']
+const DAYS_EN   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+const getDaysInMonth  = (y: number, m: number) => new Date(y, m + 1, 0).getDate()
+const getFirstDayOfMonth = (y: number, m: number) => new Date(y, m, 1).getDay()
 
 // ── Day Detail Panel ────────────────────────────────────────────────────────
-function DayPanel({
-  day, year, month, events, myAssignments, onEventClick, onClose, statusMap, assignMap, lang, isAdminUser
-}: {
-  day: number; year: number; month: number
-  events: Event[]; myAssignments: Assignment[]
-  onEventClick: (id: number) => void
-  onClose: () => void
-  statusMap: Record<string, any>; assignMap: Record<string, any>
-  lang: string; isAdminUser: boolean
-}) {
+function DayPanel({ day, year, month, events, myAssignments, onEventClick, onClose, statusMap, assignMap, lang, isAdminUser }:
+  { day: number; year: number; month: number; events: Event[]; myAssignments: Assignment[]
+    onEventClick: (id: number) => void; onClose: () => void
+    statusMap: Record<string, any>; assignMap: Record<string, any>; lang: string; isAdminUser: boolean }) {
   const MONTHS = lang === 'en' ? MONTHS_EN : MONTHS_ES
-  const dateLabel = `${day} ${MONTHS[month]} ${year}`
-
-  const statusBorderColor = (status: string) => {
-    const map: Record<string, string> = {
-      published: '#3b82f6', filled: '#10b981', started: '#eab308',
-      finished: '#0d9488', cancelled: '#ef4444', filled_pending: '#f59e0b',
-    }
-    return map[status] || '#94a3b8'
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      onClick={onClose}>
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-
-      {/* Panel */}
-      <div
-        className="relative bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Panel header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Calendar size={18} className="text-teal-600" />
-            <h3 className="font-semibold text-slate-800 text-base">{dateLabel}</h3>
-            <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full font-medium">
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }} />
+      <div style={{ position: 'relative', background: '#fff', width: '100%', maxWidth: '520px', borderRadius: '20px 20px 0 0', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+        onClick={e => e.stopPropagation()}>
+        {/* Top bar */}
+        <div style={{ height: '3px', background: `linear-gradient(90deg, ${GREEN_DARK}, ${GREEN})`, borderRadius: '20px 20px 0 0' }} />
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #f3f4f6' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Calendar size={17} color={GREEN} />
+            <span style={{ fontWeight: 700, fontSize: '15px', color: '#111827', fontFamily: "'Poppins',sans-serif" }}>{day} {MONTHS[month]} {year}</span>
+            <span style={{ background: '#f0fdf4', color: GREEN, border: `1px solid #bbf7d0`, fontSize: '11px', fontWeight: 600, padding: '2px 9px', borderRadius: '999px' }}>
               {events.length} {lang === 'en' ? (events.length === 1 ? 'event' : 'events') : (events.length === 1 ? 'evento' : 'eventos')}
             </span>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-500"
-          >
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', borderRadius: '8px', color: '#9ca3af' }}>
             <X size={18} />
           </button>
         </div>
-
-        {/* Events list */}
-        <div className="overflow-y-auto flex-1 p-4 space-y-3">
+        {/* List */}
+        <div style={{ overflowY: 'auto', flex: 1, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {events.length === 0 ? (
-            <div className="text-center py-8 text-slate-400">
-              <Calendar size={32} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">{lang === 'en' ? 'No events this day' : 'No hay eventos este día'}</p>
+            <div style={{ textAlign: 'center', padding: '2rem', color: '#9ca3af' }}>
+              <Calendar size={32} style={{ margin: '0 auto 8px', opacity: 0.3 }} />
+              <p style={{ fontSize: '13px' }}>{lang === 'en' ? 'No events this day' : 'No hay eventos este día'}</p>
             </div>
-          ) : (
-            events
-              .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''))
-              .map(ev => {
-                const st = statusMap[ev.status]
-                const myAssign = myAssignments.find(a => a.event_id === ev.id)
-                const assignSt = myAssign ? assignMap[myAssign.status] : null
-                return (
-                  <div
-                    key={ev.id}
-                    onClick={() => onEventClick(ev.id)}
-                    className="cursor-pointer rounded-xl border border-slate-200 hover:shadow-md active:scale-[0.99] transition-all overflow-hidden"
-                    style={{ borderLeftWidth: 4, borderLeftColor: statusBorderColor(ev.status) }}
-                  >
-                    <div className="p-3">
-                      {/* Name + badges */}
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div>
-                          <p className="font-semibold text-slate-800 text-sm leading-tight">{ev.name}</p>
-                          <p className="text-[11px] text-slate-400">ID #{ev.id}</p>
-                        </div>
-                        <div className="flex flex-col gap-1 items-end flex-shrink-0">
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${st?.color || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                            {st?.shortLabel || ev.status}
-                          </span>
-                          {assignSt && (
-                            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${assignSt.color}`}>
-                              {assignSt.shortLabel}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Time */}
-                      <div className="flex items-center gap-1.5 text-xs text-slate-600 mb-1">
-                        <Clock size={12} className="flex-shrink-0 text-slate-400" />
-                        <span>{ev.start_time}{ev.end_time ? ` — ${ev.end_time}` : ''}</span>
-                      </div>
-
-                      {/* Address */}
-                      <div className="flex items-start gap-1.5 text-xs text-slate-600 mb-1">
-                        <MapPin size={12} className="flex-shrink-0 mt-0.5 text-slate-400" />
-                        <span className="line-clamp-1">
-                          {ev.address}{ev.city ? `, ${ev.city}` : ''}{ev.state ? `, ${ev.state}` : ''}
-                        </span>
-                      </div>
-
-                      {/* Dress code */}
-                      {ev.dress_code && (
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                          <Shirt size={12} className="flex-shrink-0 text-slate-400" />
-                          <span className="uppercase tracking-wide font-medium">{ev.dress_code}</span>
-                        </div>
-                      )}
-
-                      {/* Edit link for admin */}
-                      {isAdminUser && ev.status !== 'cancelled' && (
-                        <div className="mt-2 pt-2 border-t border-slate-100">
-                          <Link
-                            to={`/events/${ev.id}/edit`}
-                            onClick={e => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-xs text-teal-600 hover:text-teal-800 font-medium"
-                          >
-                            <Pencil size={12} />
-                            {lang === 'en' ? 'Edit event' : 'Editar evento'}
-                          </Link>
-                        </div>
-                      )}
-                    </div>
+          ) : events.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')).map(ev => {
+            const myAssign = myAssignments.find(a => a.event_id === ev.id)
+            return (
+              <div key={ev.id} onClick={() => onEventClick(ev.id)}
+                style={{ cursor: 'pointer', borderRadius: '12px', border: '1px solid #e5e7eb', borderLeft: `4px solid ${statusAccent(ev.status)}`, padding: '12px 14px', transition: 'box-shadow 0.15s, transform 0.1s', background: '#fff' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: '13.5px', color: '#111827', fontFamily: "'Poppins',sans-serif" }}>{ev.name}</p>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>ID #{ev.id}</p>
                   </div>
-                )
-              })
-          )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0 }}>
+                    <StatusPill status={ev.status} map={statusMap} />
+                    {myAssign && <StatusPill status={myAssign.status} map={assignMap} />}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#6b7280' }}>
+                    <Clock size={12} color="#9ca3af" />{ev.start_time}{ev.end_time ? ` — ${ev.end_time}` : ''}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', color: '#6b7280' }}>
+                    <MapPin size={12} color="#9ca3af" style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.address}{ev.city ? `, ${ev.city}` : ''}</span>
+                  </div>
+                  {ev.dress_code && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#6b7280' }}>
+                      <Shirt size={12} color="#9ca3af" /><span style={{ textTransform: 'uppercase', fontWeight: 500, letterSpacing: '0.05em' }}>{ev.dress_code}</span>
+                    </div>
+                  )}
+                  {isAdminUser && ev.status !== 'cancelled' && (
+                    <div style={{ paddingTop: '8px', borderTop: '1px solid #f3f4f6', marginTop: '4px' }}>
+                      <button onClick={e => { e.stopPropagation(); onEventClick(ev.id) }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: GREEN, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                        <Pencil size={12} />{lang === 'en' ? 'Edit event' : 'Editar evento'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
-          <button
-            onClick={onClose}
-            className="w-full text-sm text-slate-600 hover:text-slate-800 font-medium py-1"
-          >
+        <div style={{ padding: '12px 20px', borderTop: '1px solid #f3f4f6', background: '#fafafa', borderRadius: '0 0 0 0' }}>
+          <button onClick={onClose} style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#6b7280', fontFamily: "'Poppins',sans-serif", fontWeight: 500, padding: '4px' }}>
             {lang === 'en' ? 'Close' : 'Cerrar'}
           </button>
         </div>
@@ -210,29 +156,17 @@ function DayPanel({
 }
 
 // ── Calendar View ───────────────────────────────────────────────────────────
-function CalendarView({
-  events, myAssignments, onEventClick, statusMap, assignMap, lang, isAdminUser
-}: {
-  events: Event[]
-  myAssignments: Assignment[]
-  onEventClick: (id: number) => void
-  statusMap: Record<string, any>
-  assignMap: Record<string, any>
-  lang: string
-  isAdminUser: boolean
-}) {
+function CalendarView({ events, myAssignments, onEventClick, statusMap, assignMap, lang, isAdminUser }:
+  { events: Event[]; myAssignments: Assignment[]; onEventClick: (id: number) => void
+    statusMap: Record<string, any>; assignMap: Record<string, any>; lang: string; isAdminUser: boolean }) {
   const today = new Date()
-  const [year, setYear] = useState(today.getFullYear())
+  const [year, setYear]   = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
 
   const MONTHS = lang === 'en' ? MONTHS_EN : MONTHS_ES
-  const DAYS = lang === 'en' ? DAYS_EN : DAYS_ES
+  const DAYS   = lang === 'en' ? DAYS_EN : DAYS_ES
 
-  const daysInMonth = getDaysInMonth(year, month)
-  const firstDay = getFirstDayOfMonth(year, month)
-
-  // Group events by day
   const eventsByDay = useMemo(() => {
     const map = new Map<number, Event[]>()
     events.forEach(ev => {
@@ -246,116 +180,83 @@ function CalendarView({
     return map
   }, [events, year, month])
 
-  const prevMonth = () => {
-    setSelectedDay(null)
-    if (month === 0) { setMonth(11); setYear(y => y - 1) }
-    else setMonth(m => m - 1)
-  }
-  const nextMonth = () => {
-    setSelectedDay(null)
-    if (month === 11) { setMonth(0); setYear(y => y + 1) }
-    else setMonth(m => m + 1)
-  }
-  const goToday = () => {
-    setSelectedDay(null)
-    setYear(today.getFullYear())
-    setMonth(today.getMonth())
-  }
+  const prevMonth = () => { setSelectedDay(null); if (month === 0) { setMonth(11); setYear(y => y - 1) } else setMonth(m => m - 1) }
+  const nextMonth = () => { setSelectedDay(null); if (month === 11) { setMonth(0); setYear(y => y + 1) } else setMonth(m => m + 1) }
+  const goToday   = () => { setSelectedDay(null); setYear(today.getFullYear()); setMonth(today.getMonth()) }
 
-  const handleDayClick = (day: number) => {
-    setSelectedDay(day)
-  }
-
-  const cells: (number | null)[] = [
-    ...Array(firstDay).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ]
+  const cells: (number | null)[] = [...Array(getFirstDayOfMonth(year, month)).fill(null), ...Array.from({ length: getDaysInMonth(year, month) }, (_, i) => i + 1)]
   while (cells.length % 7 !== 0) cells.push(null)
-
   const todayDay = today.getFullYear() === year && today.getMonth() === month ? today.getDate() : -1
 
   return (
     <>
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {/* Calendar header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-          <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors">
-            <ChevronLeft size={18} className="text-slate-600" />
+      <div style={{ background: '#fff', borderRadius: '1rem', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #f3f4f6', background: '#fafafa' }}>
+          <button onClick={prevMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', borderRadius: '8px', color: '#6b7280' }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f3f4f6'}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}>
+            <ChevronLeft size={18} />
           </button>
-          <div className="flex items-center gap-3">
-            <h3 className="text-base font-semibold text-slate-800">
-              {MONTHS[month]} {year}
-            </h3>
-            <button
-              onClick={goToday}
-              className="text-xs px-2 py-1 rounded-md bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 transition-colors"
-            >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#111827', fontFamily: "'Poppins',sans-serif" }}>{MONTHS[month]} {year}</h3>
+            <button onClick={goToday}
+              style={{ fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: '#f0fdf4', color: GREEN, border: `1px solid #bbf7d0`, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
               {lang === 'en' ? 'Today' : 'Hoy'}
             </button>
           </div>
-          <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-slate-200 transition-colors">
-            <ChevronRight size={18} className="text-slate-600" />
+          <button onClick={nextMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', borderRadius: '8px', color: '#6b7280' }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f3f4f6'}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}>
+            <ChevronRight size={18} />
           </button>
         </div>
 
         {/* Day headers */}
-        <div className="grid grid-cols-7 border-b border-slate-100">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid #f3f4f6' }}>
           {DAYS.map(d => (
-            <div key={d} className="py-2 text-center text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-              {d}
-            </div>
+            <div key={d} style={{ padding: '8px 0', textAlign: 'center', fontSize: '10px', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{d}</div>
           ))}
         </div>
 
-        {/* Calendar grid */}
-        <div className="grid grid-cols-7">
+        {/* Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
           {cells.map((day, idx) => {
-            const dayEvents = day ? (eventsByDay.get(day) || []) : []
-            const isToday = day === todayDay
+            const dayEvents  = day ? (eventsByDay.get(day) || []) : []
+            const isToday    = day === todayDay
             const isSelected = day === selectedDay
-            const hasEvents = dayEvents.length > 0
             return (
-              <div
-                key={idx}
-                onClick={() => day && handleDayClick(day)}
-                className={`min-h-[80px] lg:min-h-[100px] border-b border-r border-slate-100 p-1 lg:p-1.5
-                  ${!day ? 'bg-slate-50/50' : hasEvents ? 'cursor-pointer hover:bg-slate-50 active:bg-slate-100' : 'cursor-default'}
-                  ${isSelected ? 'bg-teal-50 ring-2 ring-inset ring-teal-400' : ''}
-                  transition-colors
-                `}
-              >
+              <div key={idx} onClick={() => day && dayEvents.length > 0 && setSelectedDay(day)}
+                style={{
+                  minHeight: '90px', borderBottom: '1px solid #f3f4f6', borderRight: '1px solid #f3f4f6',
+                  padding: '6px', cursor: day && dayEvents.length > 0 ? 'pointer' : 'default',
+                  background: isSelected ? '#f0fdf4' : !day ? '#fafafa' : '#fff',
+                  outline: isSelected ? `2px solid ${GREEN}` : 'none', outlineOffset: '-2px',
+                  transition: 'background 0.1s',
+                }}>
                 {day && (
                   <>
-                    <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-medium mb-1
-                      ${isToday ? 'bg-teal-600 text-white' : isSelected ? 'bg-teal-100 text-teal-700' : 'text-slate-600'}
-                    `}>
-                      {day}
-                    </div>
-                    <div className="space-y-0.5">
+                    <div style={{
+                      width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '11px', fontWeight: isToday ? 700 : 500, marginBottom: '4px',
+                      background: isToday ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : 'transparent',
+                      color: isToday ? '#fff' : isSelected ? GREEN : '#374151',
+                    }}>{day}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       {dayEvents.slice(0, 3).map(ev => {
-                        const st = statusMap[ev.status]
-                        const myAssign = myAssignments.find(a => a.event_id === ev.id)
+                        const s = statusMap[ev.status]
                         return (
-                          <button
-                            key={ev.id}
+                          <button key={ev.id}
                             onClick={e => { e.stopPropagation(); onEventClick(ev.id) }}
-                            className={`w-full text-left px-1 py-0.5 rounded text-[10px] lg:text-xs font-medium truncate
-                              hover:opacity-80 transition-opacity flex items-center gap-1
-                              ${st?.color || 'bg-slate-100 text-slate-700'}
-                            `}
-                            title={`${ev.name} — ${ev.start_time}`}
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${st?.dot || 'bg-slate-400'}`} />
-                            <span className="truncate">{ev.name}</span>
-                            {myAssign && <span className="flex-shrink-0 text-[9px] opacity-70">●</span>}
+                            style={{ width: '100%', textAlign: 'left', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: 500, truncate: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', background: s?.bg || '#f3f4f6', color: s?.color || '#6b7280', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: s?.dot || '#9ca3af', flexShrink: 0 }} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.name}</span>
                           </button>
                         )
                       })}
                       {dayEvents.length > 3 && (
-                        <button
-                          onClick={e => { e.stopPropagation(); handleDayClick(day) }}
-                          className="text-[10px] text-teal-600 hover:text-teal-800 pl-1 font-medium"
-                        >
+                        <button onClick={e => { e.stopPropagation(); setSelectedDay(day) }}
+                          style={{ textAlign: 'left', fontSize: '10px', fontWeight: 600, color: GREEN, background: 'none', border: 'none', cursor: 'pointer', padding: '0 5px' }}>
                           +{dayEvents.length - 3} {lang === 'en' ? 'more' : 'más'}
                         </button>
                       )}
@@ -368,36 +269,23 @@ function CalendarView({
         </div>
 
         {/* Legend */}
-        <div className="px-4 py-2 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-3">
+        <div style={{ padding: '10px 16px', borderTop: '1px solid #f3f4f6', background: '#fafafa', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
           {Object.entries(statusMap).map(([key, val]: [string, any]) => (
-            <div key={key} className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${val.dot}`} />
-              <span className="text-[10px] text-slate-600">{val.shortLabel}</span>
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: val.dot, flexShrink: 0 }} />
+              <span style={{ fontSize: '10px', color: '#6b7280' }}>{val.shortLabel}</span>
             </div>
           ))}
-          <div className="flex items-center gap-1.5 ml-auto">
-            <span className="text-[10px] text-slate-400 italic">
-              {lang === 'en' ? 'Click a day to see all events' : 'Toca un día para ver todos los eventos'}
-            </span>
-          </div>
+          <span style={{ fontSize: '10px', color: '#d1d5db', marginLeft: 'auto', fontStyle: 'italic' }}>
+            {lang === 'en' ? 'Click a day to see all events' : 'Toca un día para ver todos los eventos'}
+          </span>
         </div>
       </div>
 
-      {/* Day detail panel */}
       {selectedDay !== null && (
-        <DayPanel
-          day={selectedDay}
-          year={year}
-          month={month}
-          events={eventsByDay.get(selectedDay) || []}
-          myAssignments={myAssignments}
-          onEventClick={onEventClick}
-          onClose={() => setSelectedDay(null)}
-          statusMap={statusMap}
-          assignMap={assignMap}
-          lang={lang}
-          isAdminUser={isAdminUser}
-        />
+        <DayPanel day={selectedDay} year={year} month={month} events={eventsByDay.get(selectedDay) || []}
+          myAssignments={myAssignments} onEventClick={onEventClick} onClose={() => setSelectedDay(null)}
+          statusMap={statusMap} assignMap={assignMap} lang={lang} isAdminUser={isAdminUser} />
       )}
     </>
   )
@@ -405,22 +293,26 @@ function CalendarView({
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function EventsPage() {
-  const { user } = useAuth()
+  const { user }    = useAuth()
   const { t, i18n } = useTranslation()
-  const navigate = useNavigate()
-  const lang = i18n.language || 'es'
+  const navigate    = useNavigate()
+  const lang        = i18n.language || 'es'
 
-  const [events, setEvents] = useState<Event[]>([])
+  const [events, setEvents]             = useState<Event[]>([])
   const [myAssignments, setMyAssignments] = useState<Assignment[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading]           = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
-  const [searchText, setSearchText] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [searchText, setSearchText]     = useState('')
+  const [searchInput, setSearchInput]   = useState('')
+  const [viewMode, setViewMode]         = useState<'list' | 'calendar'>('list')
+  const [currentPage, setCurrentPage]   = useState(1)
+  const [hoveredCard, setHoveredCard]   = useState<number | null>(null)
+  const [showCreate, setShowCreate]     = useState(false)
+  const [editEventId, setEditEventId]   = useState<number | null>(null)
+  const [detailEventId, setDetailEventId] = useState<number | null>(null)
   const itemsPerPage = 10
 
-  const EVENT_STATUS = getEventStatusMap(t)
+  const EVENT_STATUS  = getEventStatusMap(t)
   const ASSIGN_STATUS = getAssignStatusMap(t)
 
   const fetchEvents = async (status: string, search: string) => {
@@ -437,28 +329,14 @@ export default function EventsPage() {
       setEvents(evRes.data)
       setMyAssignments((asRes as any).data)
       setCurrentPage(1)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
+    } catch (e) { console.error(e) }
+    finally { setLoading(false) }
   }
 
-  useEffect(() => {
-    fetchEvents(statusFilter, searchText)
-  }, [statusFilter, searchText])
+  useEffect(() => { fetchEvents(statusFilter, searchText) }, [statusFilter, searchText])
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    setSearchText(searchInput.trim())
-  }
-
-  const clearSearch = () => {
-    setSearchInput('')
-    setSearchText('')
-  }
-
-  const getMyAssignment = (eventId: number) => myAssignments.find(a => a.event_id === eventId)
+  const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setSearchText(searchInput.trim()) }
+  const clearSearch  = () => { setSearchInput(''); setSearchText('') }
 
   const statusFilters = isAdmin(user)
     ? ['', 'created', 'published', 'filled_pending', 'filled', 'started', 'finished', 'cancelled']
@@ -468,209 +346,213 @@ export default function EventsPage() {
   const totalPages = Math.ceil(events.length / itemsPerPage)
 
   return (
-    <div className="max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 lg:mb-5">
-        <h2 className="text-xl lg:text-2xl font-bold text-slate-900">{t('nav.events')}</h2>
-        <div className="flex items-center gap-2">
+    <>
+    <div style={{ maxWidth: '960px', margin: '0 auto', fontFamily: "'Poppins',sans-serif" }}>
+
+      {/* ── Page header ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>{t('nav.events')}</h2>
+          {!loading && <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>{events.length} {lang === 'en' ? 'events found' : 'eventos encontrados'}</p>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* View toggle */}
-          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-2 flex items-center gap-1.5 text-sm transition-colors
-                ${viewMode === 'list' ? 'bg-teal-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              <List size={15} />
-              <span className="hidden sm:inline">{lang === 'en' ? 'List' : 'Lista'}</span>
-            </button>
-            <button
-              onClick={() => setViewMode('calendar')}
-              className={`px-3 py-2 flex items-center gap-1.5 text-sm transition-colors border-l border-slate-200
-                ${viewMode === 'calendar' ? 'bg-teal-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              <Calendar size={15} />
-              <span className="hidden sm:inline">{lang === 'en' ? 'Calendar' : 'Calendario'}</span>
-            </button>
+          <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '10px', overflow: 'hidden' }}>
+            {[
+              { mode: 'list' as const, icon: <List size={15} />, label: lang === 'en' ? 'List' : 'Lista' },
+              { mode: 'calendar' as const, icon: <Calendar size={15} />, label: lang === 'en' ? 'Calendar' : 'Calendario' },
+            ].map(({ mode, icon, label }) => (
+              <button key={mode} onClick={() => setViewMode(mode)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px',
+                  border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+                  fontFamily: "'Poppins',sans-serif", transition: 'all 0.15s',
+                  background: viewMode === mode ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : '#fff',
+                  color: viewMode === mode ? '#fff' : '#6b7280',
+                }}>
+                {icon}<span>{label}</span>
+              </button>
+            ))}
           </div>
           {isAdmin(user) && (
-            <Link to="/events/new">
-              <Button className="gap-2 h-9 lg:h-10">
-                <Plus size={16} />
-                <span className="hidden sm:inline">{t('events.newEvent')}</span>
-              </Button>
-            </Link>
+            
+              <button onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '10px', border: 'none', background: `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: "'Poppins',sans-serif", boxShadow: '0 2px 8px rgba(45,184,75,0.25)' }}>
+                <Plus size={16} /><span>{t('events.newEvent')}</span>
+              </button>
+            
           )}
         </div>
       </div>
 
-      {/* Search bar */}
-      <form onSubmit={handleSearch} className="mb-3">
-        <div className="relative flex gap-2">
-          <div className="relative flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
+      {/* ── Search ── */}
+      <form onSubmit={handleSearch} style={{ marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+            <Input value={searchInput} onChange={e => setSearchInput(e.target.value)}
               placeholder={lang === 'en' ? 'Search by name or ID...' : 'Buscar por nombre o ID...'}
-              className="pl-9 pr-8 h-9 text-sm"
-            />
+              style={{ paddingLeft: '36px', paddingRight: searchInput ? '32px' : '12px', height: '40px' }} />
             {searchInput && (
-              <button
-                type="button"
-                onClick={clearSearch}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
+              <button type="button" onClick={clearSearch}
+                style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '2px' }}>
                 <X size={14} />
               </button>
             )}
           </div>
-          <Button type="submit" variant="outline" size="sm" className="h-9 px-4">
+          <button type="submit"
+            style={{ padding: '8px 18px', borderRadius: '10px', border: `1.5px solid ${GREEN}`, background: '#f0fdf4', color: GREEN, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: "'Poppins',sans-serif", transition: 'all 0.15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#dcfce7' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f0fdf4' }}>
             {lang === 'en' ? 'Search' : 'Buscar'}
-          </Button>
+          </button>
         </div>
       </form>
 
-      {/* Status filters */}
-      <div className="mb-4 -mx-4 px-4 lg:mx-0 lg:px-0">
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {statusFilters.map(s => (
-            <Button
-              key={s}
-              variant={statusFilter === s ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setStatusFilter(s)}
-              className="whitespace-nowrap flex-shrink-0 h-8 text-xs lg:text-sm"
-            >
-              {s === '' ? t('common.all') : (EVENT_STATUS[s]?.shortLabel || s)}
-            </Button>
-          ))}
-        </div>
+      {/* ── Status filters ── */}
+      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '16px' }}>
+        {statusFilters.map(s => {
+          const active = statusFilter === s
+          const st = EVENT_STATUS[s as keyof typeof EVENT_STATUS] as any
+          return (
+            <button key={s} onClick={() => setStatusFilter(s)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px',
+                borderRadius: '999px', border: active ? 'none' : '1px solid #e5e7eb',
+                background: active ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : '#fff',
+                color: active ? '#fff' : '#6b7280', fontSize: '12px', fontWeight: 600,
+                cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: "'Poppins',sans-serif",
+                boxShadow: active ? '0 2px 8px rgba(45,184,75,0.25)' : 'none', transition: 'all 0.15s',
+              }}>
+              {s && st && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: active ? 'rgba(255,255,255,0.7)' : st.dot, flexShrink: 0 }} />}
+              {s === '' ? t('common.all') : (st?.shortLabel || s)}
+            </button>
+          )
+        })}
       </div>
 
-      {/* Results count */}
-      {!loading && (searchText || statusFilter) && (
-        <p className="text-xs text-slate-500 mb-3">
-          {events.length} {lang === 'en' ? 'event(s) found' : 'evento(s) encontrado(s)'}
-          {searchText && <span className="ml-1">para "<strong>{searchText}</strong>"</span>}
-        </p>
-      )}
-
+      {/* ── Content ── */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4rem 0' }}>
+          <div style={{ width: '32px', height: '32px', borderRadius: '50%', border: `3px solid #e5e7eb`, borderTopColor: GREEN, animation: 'spin 0.7s linear infinite' }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
         </div>
       ) : viewMode === 'calendar' ? (
-        <CalendarView
-          events={events}
-          myAssignments={myAssignments}
-          onEventClick={id => navigate(`/events/${id}`)}
-          statusMap={EVENT_STATUS}
-          assignMap={ASSIGN_STATUS}
-          lang={lang}
-          isAdminUser={isAdmin(user)}
-        />
+        <CalendarView events={events} myAssignments={myAssignments} onEventClick={id => setDetailEventId(id)}
+          statusMap={EVENT_STATUS} assignMap={ASSIGN_STATUS} lang={lang} isAdminUser={isAdmin(user)} />
       ) : (
         <>
-          <div className="grid gap-3 lg:gap-4">
-            {events.length === 0 && (
-              <Card className="p-8 text-center">
-                <Calendar className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                <p className="text-slate-500">{t('events.noEvents')}</p>
-                {searchText && (
-                  <button onClick={clearSearch} className="mt-2 text-sm text-teal-600 hover:underline">
-                    {lang === 'en' ? 'Clear search' : 'Limpiar búsqueda'}
-                  </button>
-                )}
-              </Card>
-            )}
-            {paginatedEvents.map(event => {
-              const myAssign = getMyAssignment(event.id)
-              const borderColor = EVENT_STATUS[event.status]?.dot?.replace('bg-', '') || 'slate-300'
-              return (
-                <div
-                  key={event.id}
-                  className="cursor-pointer active:scale-[0.99] transition-transform"
-                  onClick={() => navigate(`/events/${event.id}`)}
-                >
-                  <Card className="hover:shadow-md transition-shadow border-l-4"
+          {events.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#fff', borderRadius: '1rem', border: '1px solid #e5e7eb' }}>
+              <Calendar size={40} style={{ margin: '0 auto 12px', color: '#d1d5db' }} />
+              <p style={{ margin: 0, color: '#9ca3af', fontSize: '14px' }}>{t('events.noEvents')}</p>
+              {searchText && (
+                <button onClick={clearSearch} style={{ marginTop: '10px', background: 'none', border: 'none', cursor: 'pointer', color: GREEN, fontSize: '13px', fontWeight: 600 }}>
+                  {lang === 'en' ? 'Clear search' : 'Limpiar búsqueda'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
+              {paginatedEvents.map(event => {
+                const myAssign = myAssignments.find(a => a.event_id === event.id)
+                const hovered  = hoveredCard === event.id
+                const accent   = statusAccent(event.status)
+                return (
+                  <div key={event.id} onClick={() => setDetailEventId(event.id)}
+                    onMouseEnter={() => setHoveredCard(event.id)}
+                    onMouseLeave={() => setHoveredCard(null)}
                     style={{
-                      borderLeftColor:
-                        event.status === 'published' ? '#3b82f6' :
-                        event.status === 'filled' ? '#10b981' :
-                        event.status === 'started' ? '#eab308' :
-                        event.status === 'finished' ? '#0d9488' :
-                        event.status === 'cancelled' ? '#ef4444' :
-                        event.status === 'filled_pending' ? '#f59e0b' :
-                        '#94a3b8'
+                      background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb',
+                      borderLeft: `4px solid ${accent}`, cursor: 'pointer',
+                      transition: 'all 0.15s', padding: '14px 18px',
+                      boxShadow: hovered ? '0 6px 20px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+                      transform: hovered ? 'translateY(-1px)' : 'none',
                     }}>
-                    <CardHeader className="pb-2 lg:pb-3 px-4 lg:px-6 pt-3 lg:pt-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <CardTitle className="text-base lg:text-lg leading-tight">{event.name}</CardTitle>
-                          <p className="text-[11px] text-slate-400 mt-0.5">ID #{event.id}</p>
+                    {/* Top row */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: '14.5px', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.name}</p>
+                          <span style={{ fontSize: '11px', color: '#d1d5db', fontWeight: 400 }}>#{event.id}</span>
                         </div>
-                        <div className="flex flex-col lg:flex-row gap-1 lg:gap-2 items-end lg:items-center flex-shrink-0">
-                          <StatusBadge status={event.status} map={EVENT_STATUS} mobile={true} />
-                          {myAssign && <StatusBadge status={myAssign.status} map={ASSIGN_STATUS} mobile={true} />}
-                        </div>
+                        <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                          {new Date(event.event_date + 'T00:00:00').toLocaleDateString(lang === 'en' ? 'en' : 'es', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                        </p>
                       </div>
-                      <p className="text-xs lg:text-sm text-slate-500 mt-1">
-                        {new Date(event.event_date + 'T00:00:00').toLocaleDateString(lang === 'en' ? 'en' : 'es', {
-                          weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
-                        })}
-                      </p>
-                    </CardHeader>
-                    <CardContent className="space-y-1.5 px-4 lg:px-6 pb-3 lg:pb-4">
-                      <div className="w-full flex items-start gap-2 text-xs lg:text-sm text-slate-600">
-                        <MapPin size={14} className="flex-shrink-0 mt-0.5" />
-                        <span className="line-clamp-2">
-                          {event.address}{event.city ? `, ${event.city}` : ''}{event.state ? `, ${event.state}` : ''}{event.zip_code ? ` ${event.zip_code}` : ''}
+                      <div style={{ display: 'flex', gap: '5px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <StatusPill status={event.status} map={EVENT_STATUS} />
+                        {myAssign && <StatusPill status={myAssign.status} map={ASSIGN_STATUS} />}
+                      </div>
+                    </div>
+
+                    {/* Details */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#6b7280' }}>
+                        <MapPin size={13} color="#9ca3af" />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }}>
+                          {event.address}{event.city ? `, ${event.city}` : ''}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs lg:text-sm text-slate-600">
-                        <Clock size={14} className="flex-shrink-0" />
-                        <span>{event.start_time}{event.end_time ? ` - ${event.end_time}` : ''}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#6b7280' }}>
+                        <Clock size={13} color="#9ca3af" />
+                        {event.start_time}{event.end_time ? ` — ${event.end_time}` : ''}
                       </div>
                       {event.dress_code && (
-                        <div className="flex items-center gap-2 text-xs lg:text-sm text-slate-600">
-                          <Shirt size={14} className="flex-shrink-0" />
-                          <span className="uppercase tracking-wide font-medium">{event.dress_code}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#6b7280' }}>
+                          <Shirt size={13} color="#9ca3af" />
+                          <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 500 }}>{event.dress_code}</span>
                         </div>
                       )}
-                      {isAdmin(user) && event.status !== 'cancelled' && (
-                        <div className="pt-2 border-t mt-2">
-                          <Link
-                            to={`/events/${event.id}/edit`}
-                            onClick={e => e.stopPropagation()}
-                            className="inline-flex items-center gap-1.5 text-xs lg:text-sm text-teal-600 hover:text-teal-800 font-medium active:underline lg:hover:underline"
-                          >
-                            <Pencil size={14} /> {t('common.edit')}
-                          </Link>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              )
-            })}
-          </div>
+                    </div>
+
+                    {/* Edit button */}
+                    {isAdmin(user) && event.status !== 'cancelled' && (
+                      <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #f3f4f6' }}>
+                        <button onClick={e => { e.stopPropagation(); setEditEventId(event.id) }}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: GREEN, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                          <Pencil size={13} />{t('common.edit')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="mt-6 flex items-center justify-between gap-4">
-              <Button variant="outline" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-9">
+            <div style={{ marginTop: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
+                style={{ padding: '8px 16px', borderRadius: '10px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === 1 ? '#d1d5db' : '#374151', fontSize: '13px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
                 {t('pagination.previous')}
-              </Button>
-              <span className="text-sm text-slate-600">
-                {t('pagination.page')} {currentPage} {t('pagination.of')} {totalPages}
+              </button>
+              <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                {t('pagination.page')} <strong>{currentPage}</strong> {t('pagination.of')} <strong>{totalPages}</strong>
               </span>
-              <Button variant="outline" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-9">
+              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
+                style={{ padding: '8px 16px', borderRadius: '10px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === totalPages ? '#d1d5db' : '#374151', fontSize: '13px', fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
                 {t('pagination.next')}
-              </Button>
+              </button>
             </div>
           )}
         </>
       )}
     </div>
+
+      {showCreate && (
+        <EventFormModal mode="create" onClose={() => setShowCreate(false)}
+          onSuccess={() => { setShowCreate(false); fetchEvents(statusFilter, searchText) }} />
+      )}
+      {editEventId !== null && (
+        <EventFormModal mode="edit" eventId={editEventId} onClose={() => setEditEventId(null)}
+          onSuccess={() => { setEditEventId(null); fetchEvents(statusFilter, searchText) }} />
+      )}
+      {detailEventId !== null && (
+        <EventDetailModal eventId={detailEventId} onClose={() => setDetailEventId(null)}
+          onEdit={id => { setDetailEventId(null); setEditEventId(id) }}
+          onStatusChange={() => fetchEvents(statusFilter, searchText)} />
+      )}
+    </>
   )
 }
