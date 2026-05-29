@@ -115,9 +115,47 @@ async def employee_chat(
             "time": str(ev.start_time),
             "address": f"{ev.address}, {ev.city or ''}, {ev.state or ''}".strip(", "),
             "role": role.name,
+            "status": asgn.status,
         }
-        for _, ev, role in upcoming_rows
+        for asgn, ev, role in upcoming_rows
     ]
+
+    # Get published events available to apply (not already assigned)
+    from app.models import EmployeeJobRole
+    assigned_event_ids = {asgn.event_id for asgn, _, _ in upcoming_rows}
+
+    employee_roles_result = await db.execute(
+        select(EmployeeJobRole.job_role_id).where(
+            EmployeeJobRole.user_id == user_id,
+            EmployeeJobRole.company_id == company_id,
+        )
+    )
+    employee_role_ids = {r[0] for r in employee_roles_result.all()}
+
+    available_events = []
+    if employee_role_ids:
+        from app.models import EventJobRole
+        avail_result = await db.execute(
+            select(Event)
+            .join(EventJobRole, EventJobRole.event_id == Event.id)
+            .where(
+                Event.company_id == company_id,
+                Event.status == "published",
+                Event.event_date >= today,
+                EventJobRole.job_role_id.in_(employee_role_ids),
+                Event.id.notin_(assigned_event_ids) if assigned_event_ids else True,
+            )
+            .distinct()
+            .order_by(Event.event_date)
+            .limit(5)
+        )
+        for ev in avail_result.scalars().all():
+            available_events.append({
+                "name": ev.name,
+                "date": str(ev.event_date),
+                "time": str(ev.start_time),
+                "address": f"{ev.address}, {ev.city or ''}, {ev.state or ''}".strip(", "),
+            })
 
     # Get recent completed shifts
     recent_result = await db.execute(
@@ -167,6 +205,7 @@ async def employee_chat(
 
     context = {
         "upcoming_events": upcoming_events,
+        "available_events": available_events,
         "recent_shifts": recent_shifts,
         "total_hours_this_month": total_hours,
         "total_pay_this_month": total_pay,

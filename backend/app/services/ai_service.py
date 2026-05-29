@@ -126,10 +126,17 @@ async def chat_with_employee_assistant(
 
     if context.get("upcoming_events"):
         events_str = "\n".join([
-            f"  - {e['name']} el {e['date']} a las {e['time']} en {e['address']} (rol: {e['role']})"
+            f"  - {e['name']} el {e['date']} a las {e['time']} en {e['address']} (rol: {e.get('role','')}, estado: {e.get('status','')})"
             for e in context["upcoming_events"]
         ])
         ctx_parts.append(f"Próximos eventos asignados:\n{events_str}")
+
+    if context.get("available_events"):
+        avail_str = "\n".join([
+            f"  - {e['name']} el {e['date']} a las {e['time']} en {e['address']}"
+            for e in context["available_events"]
+        ])
+        ctx_parts.append(f"Eventos publicados disponibles para aplicar:\n{avail_str}")
 
     if context.get("recent_shifts"):
         shifts_str = "\n".join([
