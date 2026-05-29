@@ -330,7 +330,20 @@
     "goodEvening": "¡Buenas noches",
     "platform": "Plataforma",
     "version": "Versión",
-    "quickAccess": "Acceso rápido"
+    "quickAccess": "Acceso rápido",
+    "eventsMonth": "Eventos del mes",
+    "eventsUpcoming": "Próximos",
+    "eventsCompleted": "Completados",
+    "eventsInProgress": "En progreso",
+    "staffAssigned": "Personal asignado",
+    "hoursWorked": "Horas trabajadas",
+    "totalPay": "Total pagos",
+    "staffByRole": "Personal por rol (mes)",
+    "nextEvents": "Próximos eventos",
+    "generalSummary": "Resumen general",
+    "totalEmployees": "Total empleados",
+    "totalEventsAllTime": "Total eventos (histórico)",
+    "eventsInProgressNow": "En progreso ahora"
   },
   "push": {
     "enable": "Activar notificaciones",
