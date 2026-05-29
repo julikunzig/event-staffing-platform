@@ -297,7 +297,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ══ TABS ════════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '1.5rem', background: '#f3f4f6', borderRadius: '12px', padding: '4px', width: 'fit-content' }}>
+      {showCharts && <div style={{ display: 'flex', gap: '4px', marginBottom: '1.5rem', background: '#f3f4f6', borderRadius: '12px', padding: '4px', width: 'fit-content' }}>
         {[
           { key: 'dashboard',   label: lang === 'en' ? '📊 Dashboard'     : '📊 Dashboard' },
           { key: 'quickaccess', label: lang === 'en' ? '⚡ Quick Access'  : '⚡ Accesos Rápidos' },
@@ -311,10 +311,10 @@ export default function DashboardPage() {
             {tab.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* ══ TAB: QUICK ACCESS ═══════════════════════════════════════════════ */}
-      {activeTab === 'quickaccess' && (
+      {(!showCharts || activeTab === 'quickaccess') && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           {cards.map(card => {
             const hovered = hoveredCard === card.to
