@@ -147,6 +147,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
   const [inviteResult, setInviteResult] = useState('')
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; danger?: boolean } | null>(null)
   const [closeLoading, setCloseLoading] = useState(false)
+  const [closeTime, setCloseTime]     = useState('')
   const [activeTab, setActiveTab]     = useState<'info' | 'shifts' | 'assignments'>('info')
 
   const loadData = async () => {
@@ -178,7 +179,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
     } catch { } finally { setLoading(false) }
   }
 
-  useEffect(() => { loadData() }, [eventId])
+  useEffect(() => { setActiveTab('info'); setCloseTime(''); loadData() }, [eventId])
 
   const getRoleName = (id: number) => jobRoles.find(r => r.id === id)?.name || `Rol #${id}`
   const getRoleRate = (id: number) => jobRoles.find(r => r.id === id)?.hourly_rate || '0'
@@ -276,7 +277,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
   const evSt  = event ? (statusConfig[event.status] || { label: event.status, bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }) : null
   const tabs  = [
     { key: 'info' as const, label: 'Información' },
-    ...(isAdminOrCoord(user) && ['started','finished'].includes(event?.status || '') ? [{ key: 'shifts' as const, label: `Turnos (${activeShifts.length})` }] : []),
+    ...(isAdminOrCoord(user) && ['started','finished'].includes(event?.status || '') ? [{ key: 'shifts' as const, label: activeShifts.length > 0 ? `Turnos (${activeShifts.length})` : 'Turnos' }] : []),
     ...(isAdminOrCoord(user) && assignments.length > 0 ? [{ key: 'assignments' as const, label: `Personal (${assignments.length})` }] : []),
   ]
 
@@ -387,7 +388,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                       <p style={S.sectionTitle}><LinkIcon size={12} />{t('events.documents')}</p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {documents.map(doc => (
-                          <a key={doc.id} href={doc.url} target="_blank" rel="noopener noreferrer"
+                          <a key={doc.id} href={doc.url || '#'} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', textDecoration: 'none', color: GREEN, fontSize: '13px', fontWeight: 500 }}>
                             <LinkIcon size={13} style={{ flexShrink: 0 }} /><span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</span><ChevronRight size={13} style={{ flexShrink: 0, color: '#9ca3af' }} />
                           </a>
@@ -584,7 +585,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                         <input type="time" value={closeTime} onChange={e => setCloseTime(e.target.value)}
                           style={{ height: '36px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0 10px', fontSize: '13px', outline: 'none' }} />
                         <button onClick={handleCloseEvent} disabled={closeLoading || !closeTime}
-                          style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#fef2f2', color: '#dc2626', fontSize: '12px', fontWeight: 700, cursor: !closeTime ? 'not-allowed' : 'pointer', border: '1px solid #fecaca' }}>
+                          style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: '12px', fontWeight: 700, cursor: !closeTime ? 'not-allowed' : 'pointer' }}>
                           {closeLoading ? 'Cerrando...' : '⏹ Cerrar Evento'}
                         </button>
                       </div>
