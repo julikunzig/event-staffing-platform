@@ -26,7 +26,7 @@ function getEventStatusMap(t: any) {
   return {
     created:        { label: t('events.status.created'),   shortLabel: t('events.status.created'),   bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db', dot: '#9ca3af' },
     published:      { label: t('events.status.published'), shortLabel: t('events.status.published'), bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', dot: '#3b82f6' },
-    filled_pending: { label: t('events.status.filledPending') || 'Llenado Pend.', shortLabel: t('events.assignmentStatus.pending'), bg: '#fffbeb', color: '#b45309', border: '#fde68a', dot: '#f59e0b' },
+    filled_pending: { label: t('events.status.filledPending') || 'Filled Pending', shortLabel: t('events.status.filledPending') || 'Filled Pending', bg: '#fffbeb', color: '#b45309', border: '#fde68a', dot: '#f59e0b' },
     filled:         { label: t('events.status.filled'),    shortLabel: t('events.status.filled'),    bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', dot: GREEN },
     started:        { label: t('events.status.started'),   shortLabel: t('events.status.started'),   bg: '#fefce8', color: '#854d0e', border: '#fef08a', dot: '#eab308' },
     finished:       { label: t('events.status.finished'),  shortLabel: t('events.status.finished'),  bg: '#f0fdfa', color: '#0f766e', border: '#99f6e4', dot: '#0d9488' },
@@ -572,14 +572,14 @@ export default function EventsPage() {
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                          <p style={{ margin: 0, fontWeight: 700, fontSize: '14.5px', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.name}</p>
-                          <span style={{ fontSize: '11px', color: '#d1d5db', fontWeight: 400 }}>#{event.id}</span>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{event.name}</p>
+
                         </div>
                         <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
-                          {new Date(event.event_date + 'T00:00:00').toLocaleDateString(lang === 'en' ? 'en' : 'es', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+                          {new Date(event.event_date + 'T00:00:00').toLocaleDateString(lang === 'en' ? 'en-US' : 'es', { year: 'numeric', month: 'short', day: 'numeric' })}
                         </p>
                       </div>
-                      <div style={{ display: 'flex', gap: '5px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0, alignItems: 'flex-end' }}>
                         <StatusPill status={event.status} map={EVENT_STATUS} />
                         {myAssign && <StatusPill status={myAssign.status} map={ASSIGN_STATUS} />}
                       </div>
