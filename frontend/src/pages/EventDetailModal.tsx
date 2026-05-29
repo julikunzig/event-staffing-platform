@@ -458,7 +458,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                               const er = eventRoles.find(e => e.job_role_id === r.id)
                               const total = er ? er.slots_filled + (er.slots_pending || 0) : 0
                               const full = er ? total >= er.slots_required : false
-                              return <option key={r.id} value={r.id} disabled={full}>{r.name} — ${parseFloat(r.hourly_rate).toFixed(2)}/h{full ? ' 🔴' : ` (${er!.slots_required - total} disp.)`}</option>
+                              return <option key={r.id} value={r.id} disabled={full}>{r.name} — ${parseFloat(r.hourly_rate).toFixed(2)}/h{full ? ' 🔴' : er ? ` (${er.slots_required - total} disp.)` : ''}</option>
                             })}
                           </select>
                           <button onClick={handleApply} disabled={actionLoading || !selectedRole}
