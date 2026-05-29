@@ -109,7 +109,7 @@ async def report_by_event(
             .join(Shift, Shift.assignment_id == EventAssignment.id, isouter=True)
             .join(JobRole, JobRole.id == EventAssignment.job_role_id)
             .join(User, User.id == EventAssignment.user_id)
-            .where(EventAssignment.event_id == event.id, EventAssignment.status == "approved")
+            .where(EventAssignment.event_id == event.id, EventAssignment.status.in_(("confirmed", "completed", "approved", "finished")))
         )
         rows = assignments_result.all()
 
@@ -179,7 +179,7 @@ async def report_by_event_id(
         .join(Shift, Shift.assignment_id == EventAssignment.id, isouter=True)
         .join(JobRole, JobRole.id == EventAssignment.job_role_id)
         .join(User, User.id == EventAssignment.user_id)
-        .where(EventAssignment.event_id == event_id, EventAssignment.status == "approved")
+        .where(EventAssignment.event_id == event_id, EventAssignment.status.in_(("confirmed", "completed", "approved", "finished")))
     )
     rows = result.all()
 
@@ -262,7 +262,7 @@ async def report_by_employee(
         .where(
             EventAssignment.user_id == user.id,
             EventAssignment.company_id == company_id,
-            EventAssignment.status == "approved",
+            EventAssignment.status.in_(("confirmed", "completed", "approved", "finished")),
             Event.event_date >= from_date,
             Event.event_date <= to_date,
         )
@@ -333,7 +333,7 @@ async def report_by_employee_id(
         .where(
             EventAssignment.user_id == user_id,
             EventAssignment.company_id == company_id,
-            EventAssignment.status == "approved",
+            EventAssignment.status.in_(("confirmed", "completed", "approved", "finished")),
             Event.event_date >= from_date,
             Event.event_date <= to_date,
         )
@@ -399,7 +399,7 @@ async def my_report(
         .where(
             EventAssignment.user_id == user_id,
             EventAssignment.company_id == company_id,
-            EventAssignment.status == "approved",
+            EventAssignment.status.in_(("confirmed", "completed", "approved", "finished")),
             Event.event_date >= from_date,
             Event.event_date <= to_date,
         )
@@ -487,7 +487,7 @@ async def employees_by_event(
         .join(User, User.id == EventAssignment.user_id)
         .where(
             Event.company_id == company_id,
-            EventAssignment.status == "approved",
+            EventAssignment.status.in_(("confirmed", "completed", "approved", "finished")),
             Event.event_date >= from_date,
             Event.event_date <= to_date,
         )
@@ -549,6 +549,7 @@ async def employees_by_event(
 
 class ConsolidatedPaymentRow(BaseModel):
     employee_name: str
+    phone: str | None = None
     total_hours: Decimal
     total_pay: Decimal
 
@@ -578,7 +579,7 @@ async def consolidated_payments(
         .join(Event, Event.id == EventAssignment.event_id)
         .where(
             EventAssignment.company_id == company_id,
-            EventAssignment.status == "approved",
+            EventAssignment.status.in_(("confirmed", "completed", "approved", "finished")),
             Event.event_date >= from_date,
             Event.event_date <= to_date,
         )
@@ -592,6 +593,7 @@ async def consolidated_payments(
         if user.id not in employees_dict:
             employees_dict[user.id] = {
                 "name": user.name,
+                "phone": user.phone,
                 "total_hours": Decimal("0"),
                 "total_pay": Decimal("0"),
             }
@@ -604,6 +606,7 @@ async def consolidated_payments(
     payments_list = [
         ConsolidatedPaymentRow(
             employee_name=emp["name"],
+            phone=emp.get("phone"),
             total_hours=emp["total_hours"],
             total_pay=emp["total_pay"],
         )

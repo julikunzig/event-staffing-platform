@@ -310,7 +310,7 @@ export default function EventsPage() {
   const [showCreate, setShowCreate]     = useState(false)
   const [editEventId, setEditEventId]   = useState<number | null>(null)
   const [detailEventId, setDetailEventId] = useState<number | null>(null)
-  const itemsPerPage = 10
+  const [itemsPerPage, setItemsPerPage]   = useState(12)
 
   const EVENT_STATUS  = getEventStatusMap(t)
   const ASSIGN_STATUS = getAssignStatusMap(t)
@@ -345,12 +345,66 @@ export default function EventsPage() {
   const paginatedEvents = events.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
   const totalPages = Math.ceil(events.length / itemsPerPage)
 
+  // ── Status summary counts ──
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    events.forEach(ev => { counts[ev.status] = (counts[ev.status] || 0) + 1 })
+    return counts
+  }, [events])
+
+  // ── Pagination control component ──
+  const PaginationBar = () => totalPages > 1 ? (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '12px', color: '#9ca3af', fontFamily: "'Poppins',sans-serif" }}>
+        {lang === 'en'
+          ? `Showing ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, events.length)} of ${events.length} events`
+          : `Mostrando ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, events.length)} de ${events.length} eventos`}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1}
+          style={{ padding: '6px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === 1 ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+          «
+        </button>
+        <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
+          style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === 1 ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+          <ChevronLeft size={14} />{t('pagination.previous')}
+        </button>
+        {/* Page numbers */}
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+            .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+              if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) acc.push('...')
+              acc.push(p)
+              return acc
+            }, [])
+            .map((p, idx) => p === '...' ? (
+              <span key={`ellipsis-${idx}`} style={{ padding: '6px 4px', fontSize: '12px', color: '#9ca3af' }}>…</span>
+            ) : (
+              <button key={p} onClick={() => setCurrentPage(p as number)}
+                style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: currentPage === p ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : '#f9fafb', color: currentPage === p ? '#fff' : '#374151', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                {p}
+              </button>
+            ))}
+        </div>
+        <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
+          style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === totalPages ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+          {t('pagination.next')}<ChevronRight size={14} />
+        </button>
+        <button onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages}
+          style={{ padding: '6px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === totalPages ? '#d1d5db' : '#374151', fontSize: '12px', fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+          »
+        </button>
+      </div>
+    </div>
+  ) : null
+
   return (
     <>
     <div style={{ maxWidth: '960px', margin: '0 auto', fontFamily: "'Poppins',sans-serif" }}>
 
       {/* ── Page header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>{t('nav.events')}</h2>
           {!loading && <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#9ca3af' }}>{events.length} {lang === 'en' ? 'events found' : 'eventos encontrados'}</p>}
@@ -385,6 +439,25 @@ export default function EventsPage() {
       </div>
 
       {/* ── Search ── */}
+      {/* ── Status summary (solo en vista lista y sin filtro activo) ── */}
+      {!loading && viewMode === 'list' && !statusFilter && events.length > 0 && (
+        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '14px' }}>
+          {Object.entries(EVENT_STATUS).map(([key, val]: [string, any]) => {
+            const count = statusCounts[key] || 0
+            if (!count) return null
+            return (
+              <button key={key} onClick={() => setStatusFilter(key)}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '8px 14px', borderRadius: '10px', border: `1.5px solid ${val.border}`, background: val.bg, cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s', minWidth: '72px' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'none'; (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}>
+                <span style={{ fontSize: '20px', fontWeight: 800, color: val.color, fontFamily: "'Poppins',sans-serif", lineHeight: 1 }}>{count}</span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: val.color, whiteSpace: 'nowrap' }}>{val.shortLabel}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <form onSubmit={handleSearch} style={{ marginBottom: '12px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           <div style={{ position: 'relative', flex: 1 }}>
@@ -441,6 +514,33 @@ export default function EventsPage() {
           statusMap={EVENT_STATUS} assignMap={ASSIGN_STATUS} lang={lang} isAdminUser={isAdmin(user)} />
       ) : (
         <>
+          {/* ── Top bar: total + items per page + pagination ── */}
+          {events.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '13px', color: '#374151', fontWeight: 600, fontFamily: "'Poppins',sans-serif" }}>
+                  {events.length} {lang === 'en' ? (events.length === 1 ? 'event' : 'events') : (events.length === 1 ? 'evento' : 'eventos')}
+                  {statusFilter && EVENT_STATUS[statusFilter as keyof typeof EVENT_STATUS] && (
+                    <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 600, color: (EVENT_STATUS[statusFilter as keyof typeof EVENT_STATUS] as any).color }}>
+                      · {(EVENT_STATUS[statusFilter as keyof typeof EVENT_STATUS] as any).label}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {/* Items per page */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px', color: '#9ca3af', whiteSpace: 'nowrap' }}>{lang === 'en' ? 'Per page:' : 'Por página:'}</span>
+                  <select value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1) }}
+                    style={{ fontSize: '12px', fontWeight: 600, color: '#374151', border: '1.5px solid #e5e7eb', borderRadius: '8px', padding: '4px 8px', background: '#fff', cursor: 'pointer', fontFamily: "'Poppins',sans-serif", outline: 'none' }}>
+                    {[6, 12, 24, 48].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+                {totalPages > 1 && <PaginationBar />}
+              </div>
+            </div>
+          )}
+
           {events.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#fff', borderRadius: '1rem', border: '1px solid #e5e7eb' }}>
               <Calendar size={40} style={{ margin: '0 auto 12px', color: '#d1d5db' }} />
@@ -520,20 +620,10 @@ export default function EventsPage() {
             </div>
           )}
 
-          {/* Pagination */}
+          {/* ── Bottom pagination ── */}
           {totalPages > 1 && (
-            <div style={{ marginTop: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
-                style={{ padding: '8px 16px', borderRadius: '10px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === 1 ? '#d1d5db' : '#374151', fontSize: '13px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
-                {t('pagination.previous')}
-              </button>
-              <span style={{ fontSize: '13px', color: '#6b7280' }}>
-                {t('pagination.page')} <strong>{currentPage}</strong> {t('pagination.of')} <strong>{totalPages}</strong>
-              </span>
-              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
-                style={{ padding: '8px 16px', borderRadius: '10px', border: '1.5px solid #e5e7eb', background: '#fff', color: currentPage === totalPages ? '#d1d5db' : '#374151', fontSize: '13px', fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
-                {t('pagination.next')}
-              </button>
+            <div style={{ marginTop: '24px', padding: '16px 0', borderTop: '1px solid #f3f4f6' }}>
+              <PaginationBar />
             </div>
           )}
         </>
