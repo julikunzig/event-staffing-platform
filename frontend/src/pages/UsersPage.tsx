@@ -60,6 +60,7 @@ export default function UsersPage() {
   const [editName, setEditName]         = useState('')
   const [editPhone, setEditPhone]       = useState('')
   const [editProfile, setEditProfile]   = useState('')
+  const [editRates, setEditRates]       = useState<{id: number; role_name: string; base_rate: number; hourly_rate_override: number | null}[]>([])
   const [editingSearch, setEditingSearch]     = useState(false)
   const [editSearchName, setEditSearchName]   = useState('')
   const [editSearchPhone, setEditSearchPhone] = useState('')
@@ -87,7 +88,7 @@ export default function UsersPage() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setSuccess(''); setSearchResult(undefined); setShowCreate(false); setActionLoading(true)
     try {
-      const res = await api.get<UserResult | null>(`/users/search?email=${encodeURIComponent(searchEmail)}`)
+      const res = await api.get<UserResult | null>(`/users/search?q=${encodeURIComponent(searchEmail)}`)
       setSearchResult(res.data ?? 'not_found')
       if (!res.data) setShowCreate(true)
     } catch { setError(t('forms.errorLoadingUsers')) } finally { setActionLoading(false) }
@@ -128,6 +129,12 @@ export default function UsersPage() {
     try {
       await api.patch(`/users/${member.id}`, { name: editName || undefined, phone: editPhone || null })
       if (editProfile !== member.profile) await api.patch(`/users/companies/${companyId}/members/${member.id}/role`, { profile_code: editProfile })
+      // Save rate overrides
+      if (editRates.length > 0) {
+        await api.patch(`/users/${member.id}/rates`, {
+          rates: editRates.map(r => ({ id: r.id, hourly_rate_override: r.hourly_rate_override }))
+        })
+      }
       setSuccess(t('forms.userUpdated')); setEditingId(null); loadMembers()
     } catch (e: any) { setError(e.response?.data?.detail || t('common.error')) } finally { setActionLoading(false) }
   }
@@ -184,7 +191,7 @@ export default function UsersPage() {
             <div style={{ position: 'relative', flex: 1 }}>
               <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
               <input value={searchEmail} onChange={e => setSearchEmail(e.target.value)}
-                placeholder={t('forms.searchByEmail')} type="email" required
+                placeholder={t('forms.searchByEmail') + ' / ' + t('forms.fullName') + ' / ' + t('forms.phone')} type="text" required
                 style={{ ...fieldStyle, paddingLeft: '32px' }} />
             </div>
             <Btn disabled={actionLoading}><Search size={13} />{t('common.search')}</Btn>
@@ -299,6 +306,36 @@ export default function UsersPage() {
                       <Btn small disabled={actionLoading} onClick={() => handleSaveEdit(member)}><Check size={12} />{t('common.save')}</Btn>
                       <Btn outline small onClick={() => setEditingId(null)}><X size={12} /></Btn>
                     </div>
+                    {/* Tarifas por rol */}
+                    {editRates.length > 0 && (
+                      <div style={{ marginTop: '10px', padding: '10px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                        <p style={{ ...sectionTitle, marginBottom: '8px' }}>{t('forms.hourlyRate')} ({t('common.optional')})</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {editRates.map((rate, i) => (
+                            <div key={rate.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '12px', color: '#374151', minWidth: '100px' }}>{rate.role_name}</span>
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>(${rate.base_rate}/h)</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder={`${rate.base_rate}`}
+                                value={rate.hourly_rate_override ?? ''}
+                                onChange={e => {
+                                  const val = e.target.value ? parseFloat(e.target.value) : null
+                                  setEditRates(prev => prev.map((r, idx) => idx === i ? { ...r, hourly_rate_override: val } : r))
+                                }}
+                                style={{ ...fieldStyle, width: '100px', height: '30px', fontSize: '12px' }}
+                              />
+                              <span style={{ fontSize: '11px', color: '#6b7280' }}>$/h</span>
+                            </div>
+                          ))}
+                        </div>
+                        <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#9ca3af' }}>
+                          Dejar vacío para usar la tarifa base del rol
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', gap: '12px' }}
@@ -316,7 +353,7 @@ export default function UsersPage() {
                           {profileNames[member.profile] || member.profile}
                         </span>
                       )})()}
-                      <button onClick={() => { setEditingId(member.id); setEditName(member.name); setEditPhone(member.phone || ''); setEditProfile(member.profile); setError(''); setSuccess('') }}
+                      <button onClick={async () => { setEditingId(member.id); setEditName(member.name); setEditPhone(member.phone || ''); setEditProfile(member.profile); setError(''); setSuccess(''); try { const r = await api.get(`/users/${member.id}/rates`); setEditRates(r.data) } catch { setEditRates([]) } }}
                         style={{ padding: '5px 8px', borderRadius: '7px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center' }}>
                         <Pencil size={13} />
                       </button>

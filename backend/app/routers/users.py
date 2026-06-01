@@ -52,15 +52,37 @@ class MemberOut(BaseModel):
 
 
 @router.get("/search", response_model=UserSearchResult | None)
-async def search_user_by_email(
-    email: str,
-    _: AdminDep,
+async def search_user(
+    current_user: AdminDep,
     db: AsyncSession = Depends(get_db),
+    email: str | None = None,
+    q: str | None = None,
 ):
-    # Buscar por email en minúsculas (case-insensitive)
-    result = await db.execute(select(User).where(User.email == email.strip().lower()))
+    """Search user by email, name or phone number."""
+    from sqlalchemy import or_, func
+    
+    search_term = (email or q or "").strip()
+    if not search_term:
+        return None
+
+    # Try exact email match first
+    result = await db.execute(select(User).where(User.email == search_term.lower()))
     user = result.scalar_one_or_none()
-    return user
+    if user:
+        return user
+
+    # Fuzzy search by name, email or phone
+    like_term = f"%{search_term.lower()}%"
+    result = await db.execute(
+        select(User).where(
+            or_(
+                func.lower(User.name).like(like_term),
+                func.lower(User.email).like(like_term),
+                User.phone.like(f"%{search_term}%"),
+            )
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 @router.post("", response_model=UserSearchResult, status_code=status.HTTP_201_CREATED)
@@ -408,3 +430,70 @@ async def delete_document(doc_id: int, current_user: AnyAuthDep, db: AsyncSessio
     if not doc:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     await db.delete(doc)
+
+
+# ── Tarifas por empleado (employee_job_roles con override) ────────────────
+
+@router.get("/{user_id}/rates")
+async def get_user_rates(
+    user_id: int,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all job roles assigned to a user with their rate overrides."""
+    from app.models import EmployeeJobRole, JobRole
+    company_id = current_user["company_id"]
+
+    result = await db.execute(
+        select(EmployeeJobRole, JobRole)
+        .join(JobRole, JobRole.id == EmployeeJobRole.job_role_id)
+        .where(
+            EmployeeJobRole.user_id == user_id,
+            EmployeeJobRole.company_id == company_id,
+        )
+        .order_by(JobRole.name)
+    )
+    rows = result.all()
+    return [
+        {
+            "id": ejr.id,
+            "job_role_id": ejr.job_role_id,
+            "role_name": role.name,
+            "base_rate": float(role.hourly_rate),
+            "hourly_rate_override": float(ejr.hourly_rate_override) if ejr.hourly_rate_override else None,
+            "effective_rate": float(ejr.hourly_rate_override) if ejr.hourly_rate_override else float(role.hourly_rate),
+        }
+        for ejr, role in rows
+    ]
+
+
+class UpdateUserRatesBody(BaseModel):
+    rates: list[dict]  # [{"employee_job_role_id": 1, "hourly_rate_override": 25.00 | null}, ...]
+
+
+@router.patch("/{user_id}/rates")
+async def update_user_rates(
+    user_id: int,
+    body: UpdateUserRatesBody,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update hourly rate overrides for a user's job roles."""
+    from app.models import EmployeeJobRole
+    from decimal import Decimal
+    company_id = current_user["company_id"]
+
+    updated = []
+    for rate_item in body.rates:
+        ejr_id = rate_item.get("employee_job_role_id") or rate_item.get("id")
+        override = rate_item.get("hourly_rate_override")
+
+        ejr = await db.get(EmployeeJobRole, ejr_id)
+        if not ejr or ejr.company_id != company_id or ejr.user_id != user_id:
+            continue
+
+        ejr.hourly_rate_override = Decimal(str(override)) if override is not None else None
+        updated.append(ejr_id)
+
+    await db.flush()
+    return {"updated": updated, "count": len(updated)}
