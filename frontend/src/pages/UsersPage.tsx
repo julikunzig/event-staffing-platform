@@ -57,6 +57,7 @@ export default function UsersPage() {
   const [newPassword, setNewPassword]   = useState('')
   const [newPhone, setNewPhone]         = useState('')
   const [newJobRoles, setNewJobRoles]   = useState<Set<number>>(new Set())
+  const [newJobRates, setNewJobRates]   = useState<Record<number, string>>({})  // {roleId: "25.00"}
   const [availableRoles, setAvailableRoles] = useState<{id: number; name: string; hourly_rate: string}[]>([])
   const [editingId, setEditingId]       = useState<number | null>(null)
   const [editName, setEditName]         = useState('')
@@ -109,14 +110,22 @@ export default function UsersPage() {
     try {
       const res = await api.post<UserResult>('/users', { name: newName, email: newEmail, password: newPassword, phone: newPhone || null })
       await api.post(`/users/companies/${companyId}/members`, { user_id: res.data.id, profile_code: profileCode })
-      // Assign selected job roles
+      // Assign selected job roles with optional custom rates
       for (const roleId of newJobRoles) {
         try {
-          await api.post(`/job-roles/bulk-assign/${roleId}`, { user_ids: [res.data.id] })
+          const hourly_rates: Record<string, number> = {}
+          const rateStr = newJobRates[roleId]
+          if (rateStr && parseFloat(rateStr) > 0) {
+            hourly_rates[String(res.data.id)] = parseFloat(rateStr)
+          }
+          await api.post(`/job-roles/bulk-assign/${roleId}`, {
+            user_ids: [res.data.id],
+            hourly_rates: Object.keys(hourly_rates).length > 0 ? hourly_rates : null,
+          })
         } catch {}
       }
       setSuccess(t('forms.userAssociated')); setShowCreate(false); setSearchResult(undefined); setSearchEmail('')
-      setNewName(''); setNewEmail(''); setNewPassword(''); setNewPhone(''); setNewJobRoles(new Set()); loadMembers()
+      setNewName(''); setNewEmail(''); setNewPassword(''); setNewPhone(''); setNewJobRoles(new Set()); setNewJobRates({}); loadMembers()
     } catch (e: any) { setError(e.response?.data?.detail || t('common.error')) } finally { setActionLoading(false) }
   }
 
@@ -276,14 +285,31 @@ export default function UsersPage() {
               {availableRoles.length > 0 && (
                 <div style={{ marginTop: '10px', padding: '10px', background: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
                   <p style={{ ...sectionTitle, marginBottom: '6px' }}>{t('forms.jobRoles')} ({t('common.optional')})</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {availableRoles.map(role => (
-                      <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '6px', border: `1.5px solid ${newJobRoles.has(role.id) ? '#2db84b' : '#e5e7eb'}`, background: newJobRoles.has(role.id) ? '#f0fdf4' : '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 500, color: newJobRoles.has(role.id) ? '#15803d' : '#374151' }}>
-                        <input type="checkbox" checked={newJobRoles.has(role.id)} onChange={() => { const n = new Set(newJobRoles); if (n.has(role.id)) n.delete(role.id); else n.add(role.id); setNewJobRoles(n) }} style={{ accentColor: '#2db84b', width: '13px', height: '13px' }} />
-                        {role.name} <span style={{ color: '#9ca3af', fontSize: '11px' }}>(${role.hourly_rate}/h)</span>
-                      </label>
+                      <div key={role.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '6px', border: `1.5px solid ${newJobRoles.has(role.id) ? '#2db84b' : '#e5e7eb'}`, background: newJobRoles.has(role.id) ? '#f0fdf4' : '#fff' }}>
+                        <input type="checkbox" checked={newJobRoles.has(role.id)} onChange={() => { const n = new Set(newJobRoles); if (n.has(role.id)) n.delete(role.id); else n.add(role.id); setNewJobRoles(n) }} style={{ accentColor: '#2db84b', width: '14px', height: '14px' }} />
+                        <span style={{ fontSize: '12px', fontWeight: 500, color: newJobRoles.has(role.id) ? '#15803d' : '#374151', flex: 1 }}>
+                          {role.name} <span style={{ color: '#9ca3af', fontSize: '11px' }}>(${role.hourly_rate}/h)</span>
+                        </span>
+                        {newJobRoles.has(role.id) && (
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder={`$${role.hourly_rate}`}
+                            value={newJobRates[role.id] || ''}
+                            onChange={e => setNewJobRates(prev => ({ ...prev, [role.id]: e.target.value }))}
+                            style={{ width: '90px', height: '28px', fontSize: '12px', borderRadius: '6px', border: '1.5px solid #d1d5db', padding: '0 8px', background: '#f9fafb', outline: 'none', fontFamily: "'Poppins',sans-serif" }}
+                            title="Tarifa personalizada para este empleado (opcional)"
+                          />
+                        )}
+                      </div>
                     ))}
                   </div>
+                  <p style={{ margin: '6px 0 0', fontSize: '10px', color: '#9ca3af' }}>
+                    Dejar tarifa vacía para usar la tarifa base del rol
+                  </p>
                 </div>
               )}
             </form>
