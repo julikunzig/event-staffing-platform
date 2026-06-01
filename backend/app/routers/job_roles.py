@@ -241,3 +241,72 @@ async def bulk_assign_role_to_employees(role_id: int, body: BulkAssignRequest, c
             assigned.append(uid)
     await db.flush()
     return {"assigned": assigned, "skipped": skipped, "total": len(body.user_ids)}
+
+
+class EmployeeRateUpdate(BaseModel):
+    hourly_rate_override: Decimal | None = None
+
+
+class EmployeeJobRoleOut(BaseModel):
+    id: int
+    user_id: int
+    company_id: int
+    job_role_id: int
+    hourly_rate_override: Decimal | None
+    model_config = {"from_attributes": True}
+
+
+@router.patch("/employee-rate/{employee_job_role_id}", response_model=EmployeeJobRoleOut)
+async def update_employee_rate(
+    employee_job_role_id: int,
+    body: EmployeeRateUpdate,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the hourly rate override for a specific employee-role assignment.
+    Set to null to use the default role rate."""
+    company_id = current_user["company_id"]
+    ejr = await db.get(EmployeeJobRole, employee_job_role_id)
+    if not ejr or ejr.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Asignación de rol no encontrada")
+    ejr.hourly_rate_override = body.hourly_rate_override
+    await db.flush()
+    await db.refresh(ejr)
+    return ejr
+
+
+@router.get("/employees/{role_id}", response_model=list[dict])
+async def get_employees_with_role(
+    role_id: int,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all employees assigned to a role with their rate override info."""
+    company_id = current_user["company_id"]
+    role = await db.get(JobRole, role_id)
+    if not role or role.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Rol no encontrado")
+
+    result = await db.execute(
+        select(EmployeeJobRole, User)
+        .join(User, User.id == EmployeeJobRole.user_id)
+        .where(
+            EmployeeJobRole.company_id == company_id,
+            EmployeeJobRole.job_role_id == role_id,
+        )
+        .order_by(User.name)
+    )
+    rows = result.all()
+
+    return [
+        {
+            "id": ejr.id,
+            "user_id": ejr.user_id,
+            "user_name": user.name,
+            "user_email": user.email,
+            "job_role_id": ejr.job_role_id,
+            "hourly_rate_override": float(ejr.hourly_rate_override) if ejr.hourly_rate_override else None,
+            "effective_rate": float(ejr.hourly_rate_override) if ejr.hourly_rate_override else float(role.hourly_rate),
+        }
+        for ejr, user in rows
+    ]

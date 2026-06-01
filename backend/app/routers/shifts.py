@@ -287,8 +287,28 @@ async def clock_in(
     )
     event_job_role = event_job_role_result.scalars().first()
     
-    # Usar override si existe, sino usar tarifa base del rol
-    hourly_rate = event_job_role.hourly_rate_override if event_job_role and event_job_role.hourly_rate_override else role.hourly_rate
+    # Jerarquía de tarifas:
+    # 1. Override por evento (event_job_role.hourly_rate_override)
+    # 2. Override por empleado (employee_job_role.hourly_rate_override)
+    # 3. Tarifa base del rol (role.hourly_rate)
+    hourly_rate = role.hourly_rate  # default
+
+    # Check employee-level override
+    from app.models import EmployeeJobRole
+    emp_role_result = await db.execute(
+        select(EmployeeJobRole).where(
+            EmployeeJobRole.user_id == assignment.user_id,
+            EmployeeJobRole.company_id == assignment.company_id,
+            EmployeeJobRole.job_role_id == assignment.job_role_id,
+        )
+    )
+    emp_role = emp_role_result.scalars().first()
+    if emp_role and emp_role.hourly_rate_override:
+        hourly_rate = emp_role.hourly_rate_override
+
+    # Event-level override takes highest priority
+    if event_job_role and event_job_role.hourly_rate_override:
+        hourly_rate = event_job_role.hourly_rate_override
 
     shift = Shift(
         assignment_id=assignment_id,
