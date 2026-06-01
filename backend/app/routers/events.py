@@ -18,6 +18,7 @@ AuthDep = Annotated[dict, Depends(get_current_user)]
 class EventJobRoleIn(BaseModel):
     job_role_id: int
     slots_required: int
+    hourly_rate_override: Decimal | None = None
 
 
 def parse_date(value: str | date) -> date:
@@ -187,6 +188,7 @@ async def create_event(
             job_role_id=jr.job_role_id,
             slots_required=jr.slots_required,
             slots_filled=0,
+            hourly_rate_override=jr.hourly_rate_override,
         )
         db.add(ejr)
 

@@ -522,8 +522,15 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                                     onChange={() => toggleEmployee(emp.id, selected.get(emp.id) || emp.roles[0]?.id || 0)} style={{ marginTop: '2px', accentColor: GREEN }} />
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{emp.name}</p>
-                                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{emp.email}</p>
-                                    {selected.has(emp.id) && (
+                                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{emp.email}{emp.phone ? ` · ${emp.phone}` : ''}</p>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '3px' }}>
+                                      {emp.roles.map(r => (
+                                        <span key={r.id} style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
+                                          {r.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    {selected.has(emp.id) && emp.roles.length > 1 && (
                                       <select value={selected.get(emp.id)} onChange={e => { const n = new Map(selected); n.set(emp.id, Number(e.target.value)); setSelected(n) }}
                                         style={{ marginTop: '4px', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '2px 6px', fontSize: '11px', width: '100%' }}>
                                         {emp.roles.map(r => { const ef = eventRoles.find(e => e.job_role_id === r.id); const fl = ef ? (ef.slots_filled + (ef.slots_pending||0)) >= ef.slots_required : true; return <option key={r.id} value={r.id} disabled={fl}>{r.name}{fl ? ' — LLENO' : ''}</option> })}
