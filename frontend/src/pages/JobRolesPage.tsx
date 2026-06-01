@@ -40,6 +40,7 @@ export default function JobRolesPage() {
   const [searchFilter, setSearchFilter] = useState('')
   const [assignResult, setAssignResult] = useState('')
   const [assignLoading, setAssignLoading] = useState(false)
+  const [customRates, setCustomRates]   = useState<Record<number, string>>({})  // {userId: "25.00"}
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
   const load = () => api.get<JobRole[]>('/job-roles').then(r => setRoles(r.data)).finally(() => setLoading(false))
@@ -72,7 +73,7 @@ export default function JobRolesPage() {
 
   const toggleExpand = async (roleId: number) => {
     if (expandedRole === roleId) { setExpandedRole(null); return }
-    setExpandedRole(roleId); setSelectedIds(new Set()); setAssignResult(''); setSearchFilter('')
+    setExpandedRole(roleId); setSelectedIds(new Set()); setAssignResult(''); setSearchFilter(''); setCustomRates({})
     setMembersLoading(true)
     try {
       const [membersRes, withRolesRes] = await Promise.all([
@@ -95,10 +96,20 @@ export default function JobRolesPage() {
     if (selectedIds.size === 0) return
     setAssignLoading(true); setAssignResult('')
     try {
-      const res = await api.post(`/job-roles/bulk-assign/${roleId}`, { user_ids: Array.from(selectedIds) })
+      // Build hourly_rates map for employees with custom rates
+      const hourly_rates: Record<string, number> = {}
+      for (const [uid, rateStr] of Object.entries(customRates)) {
+        if (rateStr && parseFloat(rateStr) > 0) {
+          hourly_rates[uid] = parseFloat(rateStr)
+        }
+      }
+      const res = await api.post(`/job-roles/bulk-assign/${roleId}`, {
+        user_ids: Array.from(selectedIds),
+        hourly_rates: Object.keys(hourly_rates).length > 0 ? hourly_rates : null,
+      })
       const data = res.data as { assigned: number[]; skipped: number[] }
       setAssignResult(`✅ ${data.assigned.length} asociado(s)${data.skipped.length > 0 ? `, ${data.skipped.length} omitido(s)` : ''}`)
-      setSelectedIds(new Set())
+      setSelectedIds(new Set()); setCustomRates({})
     } catch (e: any) {
       setAssignResult(`❌ ${e.response?.data?.detail || t('common.error')}`)
     } finally { setAssignLoading(false) }
@@ -242,6 +253,19 @@ export default function JobRolesPage() {
                             <p style={{ margin: 0, fontSize: '13px', fontWeight: 500, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{member.name}</p>
                             <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{member.email}</p>
                           </div>
+                          {selectedIds.has(member.id) && (
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder={`$${role.hourly_rate}/h`}
+                              value={customRates[member.id] || ''}
+                              onChange={e => setCustomRates(prev => ({ ...prev, [member.id]: e.target.value }))}
+                              onClick={e => e.stopPropagation()}
+                              style={{ width: '90px', height: '30px', fontSize: '12px', borderRadius: '6px', border: '1.5px solid #e5e7eb', padding: '0 8px', background: '#f9fafb', outline: 'none', fontFamily: "'Poppins',sans-serif" }}
+                              title="Tarifa personalizada (opcional)"
+                            />
+                          )}
                         </label>
                       ))}
                     </div>

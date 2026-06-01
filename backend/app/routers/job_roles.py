@@ -51,6 +51,7 @@ class WeeklyConfigOut(BaseModel):
 
 class BulkAssignRequest(BaseModel):
     user_ids: list[int]
+    hourly_rates: dict[str, float] | None = None  # {"user_id": rate} — optional per-employee rates
 
 
 # ── Rutas estáticas PRIMERO (antes de /{role_id}) ──────────────────────────
@@ -237,7 +238,11 @@ async def bulk_assign_role_to_employees(role_id: int, body: BulkAssignRequest, c
         if existing.scalar_one_or_none():
             skipped.append(uid)
         else:
-            db.add(EmployeeJobRole(user_id=uid, company_id=company_id, job_role_id=role_id))
+            # Check if a custom rate was provided for this employee
+            rate_override = None
+            if body.hourly_rates and str(uid) in body.hourly_rates:
+                rate_override = Decimal(str(body.hourly_rates[str(uid)]))
+            db.add(EmployeeJobRole(user_id=uid, company_id=company_id, job_role_id=role_id, hourly_rate_override=rate_override))
             assigned.append(uid)
     await db.flush()
     return {"assigned": assigned, "skipped": skipped, "total": len(body.user_ids)}
