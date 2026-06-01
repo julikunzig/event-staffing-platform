@@ -56,6 +56,8 @@ export default function UsersPage() {
   const [newEmail, setNewEmail]         = useState('')
   const [newPassword, setNewPassword]   = useState('')
   const [newPhone, setNewPhone]         = useState('')
+  const [newJobRoles, setNewJobRoles]   = useState<Set<number>>(new Set())
+  const [availableRoles, setAvailableRoles] = useState<{id: number; name: string; hourly_rate: string}[]>([])
   const [editingId, setEditingId]       = useState<number | null>(null)
   const [editName, setEditName]         = useState('')
   const [editPhone, setEditPhone]       = useState('')
@@ -90,7 +92,7 @@ export default function UsersPage() {
     try {
       const res = await api.get<UserResult | null>(`/users/search?q=${encodeURIComponent(searchEmail)}`)
       setSearchResult(res.data ?? 'not_found')
-      if (!res.data) setShowCreate(true)
+      if (!res.data) { setShowCreate(true); api.get('/job-roles').then(r => setAvailableRoles(r.data.filter((jr: any) => jr.is_active))).catch(() => {}) }
     } catch { setError(t('forms.errorLoadingUsers')) } finally { setActionLoading(false) }
   }
 
@@ -107,8 +109,14 @@ export default function UsersPage() {
     try {
       const res = await api.post<UserResult>('/users', { name: newName, email: newEmail, password: newPassword, phone: newPhone || null })
       await api.post(`/users/companies/${companyId}/members`, { user_id: res.data.id, profile_code: profileCode })
+      // Assign selected job roles
+      for (const roleId of newJobRoles) {
+        try {
+          await api.post(`/job-roles/bulk-assign/${roleId}`, { user_ids: [res.data.id] })
+        } catch {}
+      }
       setSuccess(t('forms.userAssociated')); setShowCreate(false); setSearchResult(undefined); setSearchEmail('')
-      setNewName(''); setNewEmail(''); setNewPassword(''); setNewPhone(''); loadMembers()
+      setNewName(''); setNewEmail(''); setNewPassword(''); setNewPhone(''); setNewJobRoles(new Set()); loadMembers()
     } catch (e: any) { setError(e.response?.data?.detail || t('common.error')) } finally { setActionLoading(false) }
   }
 
@@ -241,7 +249,7 @@ export default function UsersPage() {
           {searchResult === 'not_found' && !showCreate && (
             <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', padding: '12px 14px' }}>
               <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#c2410c' }}>{t('forms.userNotFound')}</p>
-              <Btn small onClick={() => { setShowCreate(true); setNewEmail(searchEmail) }}>
+              <Btn small onClick={() => { setShowCreate(true); setNewEmail(searchEmail); api.get('/job-roles').then(r => setAvailableRoles(r.data.filter((jr: any) => jr.is_active))).catch(() => {}) }}>
                 <UserPlus size={13} />{t('forms.createNewUser')}
               </Btn>
             </div>
@@ -264,6 +272,20 @@ export default function UsersPage() {
                 <Btn small disabled={actionLoading}>{t('forms.createAndAssociate')}</Btn>
                 <Btn outline small onClick={() => { setShowCreate(false); setSearchResult(undefined) }}>{t('common.cancel')}</Btn>
               </div>
+              {/* Roles laborales (opcional) */}
+              {availableRoles.length > 0 && (
+                <div style={{ marginTop: '10px', padding: '10px', background: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                  <p style={{ ...sectionTitle, marginBottom: '6px' }}>{t('forms.jobRoles')} ({t('common.optional')})</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {availableRoles.map(role => (
+                      <label key={role.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '6px', border: `1.5px solid ${newJobRoles.has(role.id) ? '#2db84b' : '#e5e7eb'}`, background: newJobRoles.has(role.id) ? '#f0fdf4' : '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 500, color: newJobRoles.has(role.id) ? '#15803d' : '#374151' }}>
+                        <input type="checkbox" checked={newJobRoles.has(role.id)} onChange={() => { const n = new Set(newJobRoles); if (n.has(role.id)) n.delete(role.id); else n.add(role.id); setNewJobRoles(n) }} style={{ accentColor: '#2db84b', width: '13px', height: '13px' }} />
+                        {role.name} <span style={{ color: '#9ca3af', fontSize: '11px' }}>(${role.hourly_rate}/h)</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </form>
           )}
         </div>
