@@ -128,7 +128,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
         const slots: Record<number, number> = {}
         const rates: Record<number, string> = {}
         const times: Record<number, string> = {}
-        erRes.data.forEach((r: EventJobRole) => { slots[r.id] = r.slots_required; if (r.hourly_rate_override) rates[r.id] = r.hourly_rate_override; if (r.start_time) times[r.id] = r.start_time })
+        erRes.data.forEach((r: EventJobRole) => { slots[r.id] = r.slots_required; if (r.hourly_rate_override) rates[r.id] = r.hourly_rate_override; if (r.start_time) times[r.id] = r.start_time.substring(0, 5) })
         setRoleSlotsEdit(slots)
         setRoleRatesEdit(rates)
         setRoleTimesEdit(times)
@@ -506,7 +506,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                                   {changed && <span style={{ color: '#b45309', fontWeight: 600 }}>{er.slots_required} → {current}</span>}
                                 </div>
                               </div>
-                              <input type="time" value={roleTimesEdit[er.id] ?? er.start_time ?? ''}
+                              <input type="time" value={roleTimesEdit[er.id] ?? (er.start_time ? er.start_time.substring(0, 5) : '')}
                                 onChange={e => setRoleTimesEdit(prev => ({ ...prev, [er.id]: e.target.value }))}
                                 style={{ ...fieldStyle, width: '80px', padding: '0 4px', fontSize: '12px' }}
                                 title="Hora inicio" />

@@ -417,7 +417,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                                 </span>
                               </div>
                               <ProgressBar value={er.slots_filled} max={er.slots_required} pending={pending} />
-                              {role && <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#9ca3af' }}>{er.start_time ? `🕐 ${er.start_time} · ` : ''}{er.hourly_rate_override ? <><s>${parseFloat(role.hourly_rate).toFixed(2)}</s> <span style={{ color: '#3b82f6', fontWeight: 600 }}>${parseFloat(er.hourly_rate_override).toFixed(2)}/h</span></> : `$${parseFloat(role.hourly_rate).toFixed(2)}/h`}</p>}
+                              {role && <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#9ca3af' }}>{er.start_time ? `🕐 ${er.start_time.substring(0, 5)} · ` : ''}{er.hourly_rate_override ? <><s>${parseFloat(role.hourly_rate).toFixed(2)}</s> <span style={{ color: '#3b82f6', fontWeight: 600 }}>${parseFloat(er.hourly_rate_override).toFixed(2)}/h</span></> : `$${parseFloat(role.hourly_rate).toFixed(2)}/h`}</p>}
                             </div>
                           )
                         })}

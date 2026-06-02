@@ -788,6 +788,7 @@ async def get_event_job_roles(
             slots_filled=role.slots_filled,
             slots_pending=slots_pending,
             hourly_rate_override=role.hourly_rate_override,
+            start_time=role.start_time,
         ))
     return output
 
