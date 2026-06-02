@@ -784,22 +784,42 @@ async def get_event_job_roles(
     )
     roles = result.scalars().all()
 
-    # Calcular slots_pending para cada rol
+    # Calcular slots_pending para cada rol (usando event_job_role_id si disponible)
     output = []
     for role in roles:
+        # Count assignments specifically for this event_job_role
+        from sqlalchemy import or_
         pending_result = await db.execute(
             select(sqlfunc.count(EventAssignment.id)).where(
                 EventAssignment.event_id == event_id,
-                EventAssignment.job_role_id == role.job_role_id,
                 EventAssignment.status.in_(["pending", "invited"]),
+                or_(
+                    EventAssignment.event_job_role_id == role.id,
+                    # Fallback: count by job_role_id for assignments without event_job_role_id
+                    (EventAssignment.event_job_role_id == None) & (EventAssignment.job_role_id == role.job_role_id),
+                ),
             )
         )
         slots_pending = pending_result.scalar() or 0
+        
+        # Count filled (approved) for this specific event_job_role
+        filled_result = await db.execute(
+            select(sqlfunc.count(EventAssignment.id)).where(
+                EventAssignment.event_id == event_id,
+                EventAssignment.status == "approved",
+                or_(
+                    EventAssignment.event_job_role_id == role.id,
+                    (EventAssignment.event_job_role_id == None) & (EventAssignment.job_role_id == role.job_role_id),
+                ),
+            )
+        )
+        actual_filled = filled_result.scalar() or 0
+        
         output.append(EventJobRoleOut(
             id=role.id,
             job_role_id=role.job_role_id,
             slots_required=role.slots_required,
-            slots_filled=role.slots_filled,
+            slots_filled=actual_filled,
             slots_pending=slots_pending,
             hourly_rate_override=role.hourly_rate_override,
             start_time=role.start_time,

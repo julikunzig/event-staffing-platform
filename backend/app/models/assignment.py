@@ -14,6 +14,7 @@ class EventAssignment(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     job_role_id: Mapped[int] = mapped_column(ForeignKey("job_roles.id", ondelete="RESTRICT"), nullable=False)
+    event_job_role_id: Mapped[int | None] = mapped_column(ForeignKey("event_job_roles.id", ondelete="SET NULL"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     assigned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)

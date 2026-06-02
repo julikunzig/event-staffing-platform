@@ -744,7 +744,8 @@ async def bulk_invite(
 
         assignment = EventAssignment(
             event_id=event_id, user_id=inv.user_id, company_id=company_id,
-            job_role_id=inv.job_role_id, status="invited", assigned_by=admin_id,
+            job_role_id=inv.job_role_id, event_job_role_id=inv.event_job_role_id,
+            status="invited", assigned_by=admin_id,
         )
         db.add(assignment)
         await db.flush()
