@@ -512,11 +512,13 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                             style={{ width: '100%', height: '36px', paddingLeft: '30px', paddingRight: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
                         </div>
                         {empLoading ? <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center' }}>{t('common.loading')}</p> : filteredEmployees.length === 0 ? <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center' }}>{t('events.noEmployeesWithRoles')}</p> : (
-                          <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fff' }}>
+                          <div style={{ maxHeight: '240px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fff' }}>
                             {filteredEmployees.map(emp => {
                               const curRole = selected.get(emp.id) || emp.roles[0]?.id || 0
-                              const er = eventRoles.find(r => r.job_role_id === curRole)
-                              const full = er ? (er.slots_filled + (er.slots_pending || 0)) >= er.slots_required : false
+                              // Find matching eventRoles for this employee's roles
+                              const matchingEventRoles = eventRoles.filter(er => emp.roles.some(r => r.id === er.job_role_id))
+                              const selectedEr = matchingEventRoles.find(er => er.job_role_id === curRole) || matchingEventRoles[0]
+                              const full = selectedEr ? (selectedEr.slots_filled + (selectedEr.slots_pending || 0)) >= selectedEr.slots_required : false
                               return (
                                 <div key={emp.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderBottom: '1px solid #f3f4f6', opacity: full && !selected.has(emp.id) ? 0.5 : 1 }}>
                                   <input type="checkbox" checked={selected.has(emp.id)} disabled={full && !selected.has(emp.id)}
@@ -531,10 +533,16 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                                         </span>
                                       ))}
                                     </div>
-                                    {selected.has(emp.id) && emp.roles.length > 1 && (
+                                    {selected.has(emp.id) && matchingEventRoles.length > 0 && (
                                       <select value={selected.get(emp.id)} onChange={e => { const n = new Map(selected); n.set(emp.id, Number(e.target.value)); setSelected(n) }}
-                                        style={{ marginTop: '4px', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '2px 6px', fontSize: '11px', width: '100%' }}>
-                                        {emp.roles.map(r => { const ef = eventRoles.find(e => e.job_role_id === r.id); const fl = ef ? (ef.slots_filled + (ef.slots_pending||0)) >= ef.slots_required : true; return <option key={r.id} value={r.id} disabled={fl}>{r.name}{fl ? ' — LLENO' : ''}</option> })}
+                                        style={{ marginTop: '4px', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '3px 6px', fontSize: '11px', width: '100%' }}>
+                                        {matchingEventRoles.map(er => {
+                                          const roleName = jobRoles.find(r => r.id === er.job_role_id)?.name || `Rol #${er.job_role_id}`
+                                          const timeStr = er.start_time ? er.start_time.substring(0, 5) : ''
+                                          const rateStr = er.hourly_rate_override ? `$${parseFloat(er.hourly_rate_override).toFixed(0)}` : ''
+                                          const fl = (er.slots_filled + (er.slots_pending || 0)) >= er.slots_required
+                                          return <option key={er.id} value={er.job_role_id} disabled={fl}>{roleName}{timeStr ? ` · ${timeStr}` : ''}{rateStr ? ` · ${rateStr}/h` : ''} ({er.slots_filled}/{er.slots_required}){fl ? ' — LLENO' : ''}</option>
+                                        })}
                                       </select>
                                     )}
                                   </div>
