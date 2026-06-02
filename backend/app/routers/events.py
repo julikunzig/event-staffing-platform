@@ -932,6 +932,48 @@ async def update_event_job_role_slots(
     return ejr
 
 
+@router.delete("/{event_id}/job-roles/{ejr_id}", status_code=204)
+async def delete_event_job_role(
+    event_id: int,
+    ejr_id: int,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a job role row from an event. Only allowed if no employees are assigned to it."""
+    company_id = current_user["company_id"]
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    ejr = await db.get(EventJobRole, ejr_id)
+    if not ejr or ejr.event_id != event_id:
+        raise HTTPException(status_code=404, detail="Rol no encontrado en este evento")
+
+    if ejr.slots_filled > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar: hay {ejr.slots_filled} empleado(s) aprobado(s) en este rol. Quítalos primero."
+        )
+
+    # Check for pending/invited assignments
+    pending_result = await db.execute(
+        select(EventAssignment).where(
+            EventAssignment.event_id == event_id,
+            EventAssignment.job_role_id == ejr.job_role_id,
+            EventAssignment.status.in_(["pending", "invited"]),
+        )
+    )
+    pending = pending_result.scalars().all()
+    if pending:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede eliminar: hay {len(pending)} empleado(s) pendientes/invitados en este rol. Quítalos primero."
+        )
+
+    await db.delete(ejr)
+    await db.flush()
+
+
 class AddEventJobRoleRequest(BaseModel):
     job_role_id: int
     slots_required: int

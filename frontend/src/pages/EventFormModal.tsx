@@ -528,6 +528,19 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                                 onChange={e => setRoleRatesEdit(prev => ({ ...prev, [er.id]: e.target.value }))}
                                 style={{ ...fieldStyle, width: '85px', textAlign: 'center', padding: '0 4px', fontSize: '12px' }}
                                 title="Tarifa para este evento" />
+                              {er.slots_filled === 0 && (pending === 0) && (
+                                <button type="button" onClick={async () => {
+                                  if (!confirm(`¿Eliminar ${getRoleName(er.job_role_id)} de este evento?`)) return
+                                  try {
+                                    await api.delete(`/events/${eventId}/job-roles/${er.id}`)
+                                    setEventRoles(prev => prev.filter(r => r.id !== er.id))
+                                  } catch (err: any) { setError(err.response?.data?.detail || 'Error') }
+                                }}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px' }}
+                                  title="Eliminar este rol">
+                                  <Trash2 size={15} />
+                                </button>
+                              )}
                             </div>
                           )
                         })}
