@@ -208,7 +208,11 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
   const handleBulkInvite = async () => {
     if (selected.size === 0) return; setActionLoading(true); setInviteResult('')
     try {
-      const invitations = Array.from(selected.entries()).map(([userId, roleId]) => ({ user_id: userId, job_role_id: roleId }))
+      // selected stores er.id (event_job_role ID), resolve to job_role_id for the API
+      const invitations = Array.from(selected.entries()).map(([userId, erId]) => {
+        const er = eventRoles.find(r => r.id === erId)
+        return { user_id: userId, job_role_id: er ? er.job_role_id : erId }
+      })
       const res = await api.post(`/assignments/events/${eventId}/bulk-invite`, { invitations })
       setInviteResult(`✅ ${res.data.count} empleado(s) invitado(s)`); setSelected(new Map()); await loadData()
     } catch (e: any) { setInviteResult(`❌ ${parseErrorMessage(e.response?.data?.detail || 'Error')}`) } finally { setActionLoading(false) }
@@ -522,7 +526,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                               return (
                                 <div key={emp.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderBottom: '1px solid #f3f4f6', opacity: full && !selected.has(emp.id) ? 0.5 : 1 }}>
                                   <input type="checkbox" checked={selected.has(emp.id)} disabled={full && !selected.has(emp.id)}
-                                    onChange={() => toggleEmployee(emp.id, selected.get(emp.id) || emp.roles[0]?.id || 0)} style={{ marginTop: '2px', accentColor: GREEN }} />
+                                    onChange={() => toggleEmployee(emp.id, matchingEventRoles[0]?.id || emp.roles[0]?.id || 0)} style={{ marginTop: '2px', accentColor: GREEN }} />
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{emp.name}</p>
                                     <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{emp.email}{emp.phone ? ` · ${emp.phone}` : ''}</p>
@@ -541,7 +545,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                                           const timeStr = er.start_time ? er.start_time.substring(0, 5) : ''
                                           const rateStr = er.hourly_rate_override ? `$${parseFloat(er.hourly_rate_override).toFixed(0)}` : ''
                                           const fl = (er.slots_filled + (er.slots_pending || 0)) >= er.slots_required
-                                          return <option key={er.id} value={er.job_role_id} disabled={fl}>{roleName}{timeStr ? ` · ${timeStr}` : ''}{rateStr ? ` · ${rateStr}/h` : ''} ({er.slots_filled}/{er.slots_required}){fl ? ' — LLENO' : ''}</option>
+                                          return <option key={er.id} value={er.id} disabled={fl}>{roleName}{timeStr ? ` · ${timeStr}` : ''}{rateStr ? ` · ${rateStr}/h` : ''} ({er.slots_filled}/{er.slots_required}){fl ? ' — LLENO' : ''}</option>
                                         })}
                                       </select>
                                     )}
