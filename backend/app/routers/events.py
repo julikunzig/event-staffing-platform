@@ -579,45 +579,52 @@ async def publish_event(
                     )
 
         else:
-            # ── CASE C: No invitations — send email to all eligible employees ─
-            eligible_result = await db.execute(
-                select(User).join(
-                    UserCompanyMembership, User.id == UserCompanyMembership.user_id
-                ).join(
-                    Profile, Profile.id == UserCompanyMembership.profile_id
-                ).where(
-                    UserCompanyMembership.company_id == company_id,
-                    User.id.in_(
-                        select(EmployeeJobRole.user_id).where(
-                            EmployeeJobRole.company_id == company_id,
-                            EmployeeJobRole.job_role_id.in_(job_role_ids)
-                        )
-                    ),
-                    User.is_active == True,
-                    UserCompanyMembership.is_active == True,
-                    Profile.code == "employee",
-                ).distinct()
-            )
-            all_employees = eligible_result.scalars().all()
-            seen_all: set = set()
-            for emp in all_employees:
-                if emp.id not in seen_all and emp.email:
-                    seen_all.add(emp.id)
+            # ── CASE C: No invitations — send per-role emails to eligible employees ─
+            # For each event_job_role, find employees with that role and send individual email
+            for er in event_roles:
+                role = await db.get(JobRole, er.job_role_id)
+                if not role:
+                    continue
+                effective_rate = str(er.hourly_rate_override) if er.hourly_rate_override else str(role.hourly_rate)
+                role_start_time = str(er.start_time)[:5] if er.start_time else start_time_str
+
+                # Find employees with this specific role
+                role_employees_result = await db.execute(
+                    select(User).join(
+                        EmployeeJobRole, EmployeeJobRole.user_id == User.id
+                    ).join(
+                        UserCompanyMembership, (UserCompanyMembership.user_id == User.id) & (UserCompanyMembership.company_id == company_id)
+                    ).join(
+                        Profile, Profile.id == UserCompanyMembership.profile_id
+                    ).where(
+                        EmployeeJobRole.company_id == company_id,
+                        EmployeeJobRole.job_role_id == er.job_role_id,
+                        User.is_active == True,
+                        UserCompanyMembership.is_active == True,
+                        Profile.code == "employee",
+                    ).distinct()
+                )
+                role_employees = role_employees_result.scalars().all()
+
+                for emp in role_employees:
+                    if not emp.email:
+                        continue
                     first_name = emp.name.split()[0].capitalize() if emp.name else ""
+                    role_info = [{"name": role.name, "rate": effective_rate}]
                     await send_event_published_email_personalized(
                         employee_email=emp.email,
                         employee_name=first_name,
                         event_name=event.name,
                         event_date=event_date_str,
-                        start_time=start_time_str,
+                        start_time=role_start_time,
                         address=event.address,
                         city=event.city or "",
                         state=event.state or "",
                         zip_code=event.zip_code or "",
-                        roles=roles_info,
+                        roles=role_info,
                         dress_code=event.dress_code,
                     )
-                    await notify_push(emp.id, f"🎉 Nuevo evento: {event.name}", f"Disponible el {event_date_str}. ¡Aplica ahora!")
+                    await notify_push(emp.id, f"🎉 {event.name}", f"{role.name} a las {role_start_time} — ${effective_rate}/h")
 
     except Exception as e:
         print(f"❌ Error sending notifications on publish: {str(e)}")
