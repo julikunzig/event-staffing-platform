@@ -416,12 +416,19 @@ async def publish_event(
 
     job_role_ids = [er.job_role_id for er in event_roles]
 
-    # Build roles info for emails
+    # Build roles info for emails — include start_time and rate override
     roles_info = []
     for er in event_roles:
         role = await db.get(JobRole, er.job_role_id)
         if role:
-            roles_info.append({"name": role.name, "rate": str(role.hourly_rate)})
+            effective_rate = str(er.hourly_rate_override) if er.hourly_rate_override else str(role.hourly_rate)
+            role_start = str(er.start_time)[:5] if er.start_time else str(event.start_time)[:5] if event.start_time else ""
+            roles_info.append({
+                "name": role.name,
+                "rate": effective_rate,
+                "slots": er.slots_required,
+                "start_time": role_start,
+            })
 
     # ── Get invited employees (status = 'invited') ──────────────────────────
     invited_result = await db.execute(

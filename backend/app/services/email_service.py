@@ -31,10 +31,10 @@ class EmailTemplates:
         """Email sent to employees with required roles when event is published"""
 
         roles_text_en = "\n".join(
-            [f"• {role['name']}: ${role['rate']}/hour" for role in roles]
+            [f"• {role['name']}: {role.get('slots', 1)} slot(s) at {role.get('start_time', '')} — ${role['rate']}/hour" for role in roles]
         )
         roles_text_es = "\n".join(
-            [f"• {role['name']}: ${role['rate']}/hora" for role in roles]
+            [f"• {role['name']}: {role.get('slots', 1)} cupo(s) a las {role.get('start_time', '')} — ${role['rate']}/hora" for role in roles]
         )
 
         html_en = f"""
@@ -526,10 +526,10 @@ async def send_event_published_email_personalized(
     """Send a personalized event published notification to a single employee."""
 
     roles_text_en = "\n".join(
-        [f"• {role['name']}: ${role['rate']}/hour" for role in roles]
+        [f"• {role['name']}: {role.get('slots', 1)} slot(s) at {role.get('start_time', '')} — ${role['rate']}/hour" for role in roles]
     )
     roles_text_es = "\n".join(
-        [f"• {role['name']}: ${role['rate']}/hora" for role in roles]
+        [f"• {role['name']}: {role.get('slots', 1)} cupo(s) a las {role.get('start_time', '')} — ${role['rate']}/hora" for role in roles]
     )
 
     greeting_en = f"Hi {employee_name}," if employee_name else "Hello,"
