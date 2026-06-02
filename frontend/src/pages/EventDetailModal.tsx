@@ -29,6 +29,7 @@ interface EmployeeWithRoles { id: number; name: string; email: string; phone: st
 interface EventJobRoleSlot {
   id: number; job_role_id: number; slots_required: number
   slots_filled: number; slots_pending: number; hourly_rate_override: string | null
+  start_time: string | null
 }
 interface EventShift {
   shift_id: number; assignment_id: number; user_id: number
@@ -416,7 +417,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                                 </span>
                               </div>
                               <ProgressBar value={er.slots_filled} max={er.slots_required} pending={pending} />
-                              {role && <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#9ca3af' }}>{er.hourly_rate_override ? <><s>${parseFloat(role.hourly_rate).toFixed(2)}</s> <span style={{ color: '#3b82f6', fontWeight: 600 }}>${parseFloat(er.hourly_rate_override).toFixed(2)}/h</span></> : `$${parseFloat(role.hourly_rate).toFixed(2)}/h`}</p>}
+                              {role && <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#9ca3af' }}>{er.start_time ? `🕐 ${er.start_time} · ` : ''}{er.hourly_rate_override ? <><s>${parseFloat(role.hourly_rate).toFixed(2)}</s> <span style={{ color: '#3b82f6', fontWeight: 600 }}>${parseFloat(er.hourly_rate_override).toFixed(2)}/h</span></> : `$${parseFloat(role.hourly_rate).toFixed(2)}/h`}</p>}
                             </div>
                           )
                         })}
