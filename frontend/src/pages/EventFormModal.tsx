@@ -243,7 +243,10 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
         const res = await api.post<{ id: number }>('/events', {
           name, event_date: eventDate, start_time: startTime, end_time: endTime || null,
           address, city: city || null, state: state || null, zip_code: zipCode || null,
-          dress_code: dressCode || null, job_roles: roleSlots,
+          dress_code: dressCode || null, job_roles: roleSlots.map(s => ({
+            ...s,
+            start_time: s.start_time || startTime || null,
+          })),
         })
         const eid = res.data.id
         await Promise.all([
