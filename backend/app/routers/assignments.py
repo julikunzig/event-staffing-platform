@@ -43,7 +43,8 @@ async def _get_event_for_company(event_id: int, company_id: int, db: AsyncSessio
 async def _check_slots(event_id: int, job_role_id: int, db: AsyncSession) -> EventJobRole:
     """
     Verifica si hay cupos disponibles para un rol en un evento.
-    Cuenta pending + invited + approved juntos contra slots_required.
+    Cuenta pending + invited + approved juntos contra la SUMA de slots_required
+    de todos los event_job_roles con ese job_role_id (puede haber múltiples filas).
     """
     from sqlalchemy import func as sqlfunc
     result = await db.execute(
@@ -52,9 +53,18 @@ async def _check_slots(event_id: int, job_role_id: int, db: AsyncSession) -> Eve
             EventJobRole.job_role_id == job_role_id,
         )
     )
-    ejr = result.scalar_one_or_none()
+    ejr = result.scalars().first()
     if not ejr:
         raise HTTPException(status_code=400, detail="El evento no requiere ese rol")
+
+    # Sum total slots for this role (may have multiple rows with different start_times)
+    total_slots_result = await db.execute(
+        select(sqlfunc.sum(EventJobRole.slots_required)).where(
+            EventJobRole.event_id == event_id,
+            EventJobRole.job_role_id == job_role_id,
+        )
+    )
+    total_slots = total_slots_result.scalar() or 0
 
     # Contar todas las asignaciones activas (pending + invited + approved)
     active_count_result = await db.execute(
@@ -66,10 +76,10 @@ async def _check_slots(event_id: int, job_role_id: int, db: AsyncSession) -> Eve
     )
     active_count = active_count_result.scalar() or 0
 
-    if active_count >= ejr.slots_required:
+    if active_count >= total_slots:
         raise HTTPException(
             status_code=409,
-            detail=f"Cupos agotados para este rol ({active_count}/{ejr.slots_required} cupos ocupados)"
+            detail=f"Cupos agotados para este rol ({active_count}/{total_slots} cupos ocupados)"
         )
     return ejr
 
@@ -712,21 +722,23 @@ async def bulk_invite(
         )
         active_count = active_count_result.scalar() or 0
 
-        ejr_result = await db.execute(
-            select(EventJobRole).where(
+        # Sum total slots_required for this job_role_id across all event_job_roles
+        from sqlalchemy import func as sqlfunc2
+        total_slots_result = await db.execute(
+            select(sqlfunc.sum(EventJobRole.slots_required)).where(
                 EventJobRole.event_id == event_id,
                 EventJobRole.job_role_id == inv.job_role_id,
             )
         )
-        ejr = ejr_result.scalar_one_or_none()
-        if not ejr:
+        total_slots = total_slots_result.scalar() or 0
+        if total_slots == 0:
             skipped.append(inv.user_id)
             continue
 
-        if active_count >= ejr.slots_required:
+        if active_count >= total_slots:
             raise HTTPException(
                 status_code=409,
-                detail=f"Cupos agotados para el rol solicitado ({active_count}/{ejr.slots_required}). No se pueden invitar más personas a ese rol."
+                detail=f"Cupos agotados para el rol solicitado ({active_count}/{total_slots}). No se pueden invitar más personas a ese rol."
             )
 
         assignment = EventAssignment(
