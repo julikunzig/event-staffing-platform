@@ -19,6 +19,7 @@ class ApplyRequest(BaseModel):
 class DirectAssignRequest(BaseModel):
     user_id: int
     job_role_id: int
+    event_job_role_id: int | None = None  # optional: specific shift/time slot
 
 
 class AssignmentOut(BaseModel):
@@ -754,6 +755,19 @@ async def bulk_invite(
         user_result = await db.get(User, inv.user_id)
         role_result = await db.get(JobRole, inv.job_role_id)
         if user_result and role_result:
+            # Get specific event_job_role for time and rate
+            specific_ejr = None
+            if inv.event_job_role_id:
+                specific_ejr = await db.get(EventJobRole, inv.event_job_role_id)
+            if not specific_ejr:
+                ejr_q = await db.execute(
+                    select(EventJobRole).where(EventJobRole.event_id == event_id, EventJobRole.job_role_id == inv.job_role_id).limit(1)
+                )
+                specific_ejr = ejr_q.scalars().first()
+
+            shift_time = str(specific_ejr.start_time)[:5] if specific_ejr and specific_ejr.start_time else str(event.start_time)
+            effective_rate = str(specific_ejr.hourly_rate_override) if specific_ejr and specific_ejr.hourly_rate_override else str(role_result.hourly_rate)
+
             event_date_str = event.event_date.strftime("%B %d, %Y") if event.event_date else ""
             address_parts = [event.address, event.city, event.state, event.zip_code]
             address_str = ", ".join(p for p in address_parts if p)
@@ -765,15 +779,15 @@ async def bulk_invite(
                 "event_name": event.name,
                 "event_date": event_date_str,
                 "event_date_raw": event.event_date.strftime("%Y-%m-%d"),
-                "event_time": str(event.start_time),
+                "event_time": shift_time,
                 "event_address": address_str,
                 "event_address_raw": event.address,
                 "event_city": event.city or "",
                 "event_state": event.state or "",
                 "event_dress_code": event.dress_code or "No especificado",
                 "role_name": role_result.name,
-                "hourly_rate": str(role_result.hourly_rate),
-                "assignment": assignment,  # referencia para obtener el ID post-flush
+                "hourly_rate": effective_rate,
+                "assignment": assignment,
             })
 
     # Flush final para confirmar todo

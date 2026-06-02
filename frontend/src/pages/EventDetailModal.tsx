@@ -211,7 +211,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
       // selected stores er.id (event_job_role ID), resolve to job_role_id for the API
       const invitations = Array.from(selected.entries()).map(([userId, erId]) => {
         const er = eventRoles.find(r => r.id === erId)
-        return { user_id: userId, job_role_id: er ? er.job_role_id : erId }
+        return { user_id: userId, job_role_id: er ? er.job_role_id : erId, event_job_role_id: erId }
       })
       const res = await api.post(`/assignments/events/${eventId}/bulk-invite`, { invitations })
       setInviteResult(`✅ ${res.data.count} empleado(s) invitado(s)`); setSelected(new Map()); await loadData()
