@@ -440,7 +440,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{ display: 'flex', gap: '8px', fontSize: '10px', color: '#6b7280', fontWeight: 600, padding: '0 4px' }}>
                           <span style={{ flex: 1, minWidth: '140px' }}>Rol *</span>
-                          <span style={{ width: '80px', textAlign: 'center' }}>Hora inicio</span>
+                          <span style={{ width: '95px', textAlign: 'center' }}>Hora inicio</span>
                           <span style={{ width: '55px', textAlign: 'center' }}>Cupos *</span>
                           <span style={{ width: '85px', textAlign: 'center' }}>$/h</span>
                           <span style={{ width: '24px' }}></span>
@@ -457,7 +457,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                             </div>
                             <input type="time" value={slot.start_time || startTime || ''}
                               onChange={e => { const u = [...roleSlots]; u[i] = { ...u[i], start_time: e.target.value }; setRoleSlots(u) }}
-                              style={{ ...fieldStyle, width: '80px', padding: '0 4px', fontSize: '12px' }}
+                              style={{ ...fieldStyle, width: '95px', padding: '0 4px', fontSize: '12px' }}
                               title="Hora inicio de este rol" />
                             <input type="number" min={1} value={slot.slots_required}
                               onChange={e => updateRoleRow(i, 'slots_required', Number(e.target.value))}
@@ -508,7 +508,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                               </div>
                               <input type="time" value={roleTimesEdit[er.id] ?? (er.start_time ? er.start_time.substring(0, 5) : '')}
                                 onChange={e => setRoleTimesEdit(prev => ({ ...prev, [er.id]: e.target.value }))}
-                                style={{ ...fieldStyle, width: '80px', padding: '0 4px', fontSize: '12px' }}
+                                style={{ ...fieldStyle, width: '95px', padding: '0 4px', fontSize: '12px' }}
                                 title="Hora inicio" />
                               <input type="number" min={er.slots_filled} value={current}
                                 onChange={e => setRoleSlotsEdit(prev => ({ ...prev, [er.id]: Math.max(er.slots_filled, Number(e.target.value)) }))}
