@@ -265,10 +265,15 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
           }),
           ...eventRoles.map(er => {
             const newRate = roleRatesEdit[er.id]
+            const newTime = roleTimesEdit[er.id]
             const currentRate = er.hourly_rate_override || ''
-            if (newRate === currentRate) return Promise.resolve()
-            const rateValue = newRate && parseFloat(newRate) > 0 ? parseFloat(newRate) : null
-            return api.patch(`/events/${eventId}/job-roles/${er.job_role_id}/rate`, { hourly_rate_override: rateValue })
+            const currentTime = er.start_time ? er.start_time.substring(0, 5) : ''
+            const rateChanged = (newRate ?? currentRate) !== currentRate
+            const timeChanged = (newTime ?? currentTime) !== currentTime
+            if (!rateChanged && !timeChanged) return Promise.resolve()
+            const rateValue = (newRate !== undefined && newRate !== '' && parseFloat(newRate) > 0) ? parseFloat(newRate) : null
+            const timeValue = (newTime !== undefined && newTime !== '') ? newTime : null
+            return api.patch(`/events/${eventId}/job-roles/${er.id}/rate`, { hourly_rate_override: rateValue, start_time: timeValue })
           }),
           api.put(`/events/${eventId}/coordinators`, { user_ids: selectedCoordIds }),
           api.patch(`/events/${eventId}/notes`, { notes: notes || null }),

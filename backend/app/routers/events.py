@@ -794,7 +794,8 @@ async def get_event_job_roles(
 
 
 class EventJobRoleRateUpdate(BaseModel):
-    hourly_rate_override: Decimal
+    hourly_rate_override: Decimal | None = None
+    start_time: time | None = None
 
 
 @router.patch("/{event_id}/job-roles/{job_role_id}/rate", response_model=EventJobRoleOut)
@@ -805,28 +806,54 @@ async def update_event_job_role_rate(
     current_user: AdminDep,
     db: AsyncSession = Depends(get_db),
 ):
-    """Actualiza la tarifa por hora para un rol específico en este evento (no modifica la tarifa global)."""
+    """Actualiza la tarifa por hora para un rol específico en este evento (no modifica la tarifa global).
+    job_role_id here is actually the event_job_role.id (the row ID) for unique identification."""
     company_id = current_user["company_id"]
     event = await db.get(Event, event_id)
     if not event or event.company_id != company_id:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
-    if event.status not in ("created", "published"):
-        raise HTTPException(status_code=400, detail="Solo se puede modificar la tarifa en eventos creados o publicados")
 
-    result = await db.execute(
-        select(EventJobRole).where(
-            EventJobRole.event_id == event_id,
-            EventJobRole.job_role_id == job_role_id,
+    # Try by event_job_role.id first (new behavior)
+    ejr = await db.get(EventJobRole, job_role_id)
+    if not ejr or ejr.event_id != event_id:
+        # Fallback: try by job_role_id (legacy behavior)
+        result = await db.execute(
+            select(EventJobRole).where(
+                EventJobRole.event_id == event_id,
+                EventJobRole.job_role_id == job_role_id,
+            )
         )
-    )
-    ejr = result.scalar_one_or_none()
+        ejr = result.scalars().first()
+    
     if not ejr:
         raise HTTPException(status_code=404, detail="Rol no encontrado en este evento")
 
-    ejr.hourly_rate_override = body.hourly_rate_override
-    await db.flush()
-    return ejr
+    if body.hourly_rate_override is not None:
+        ejr.hourly_rate_override = body.hourly_rate_override
+    elif 'hourly_rate_override' in (body.model_fields_set or set()):
+        ejr.hourly_rate_override = None
+    
+    if body.start_time is not None:
+        ejr.start_time = body.start_time
+    elif 'start_time' in (body.model_fields_set or set()):
+        ejr.start_time = None
 
+    await db.flush()
+    from sqlalchemy import func as sqlfunc
+    pending_result = await db.execute(
+        select(sqlfunc.count(EventAssignment.id)).where(
+            EventAssignment.event_id == event_id,
+            EventAssignment.job_role_id == ejr.job_role_id,
+            EventAssignment.status.in_(["pending", "invited"]),
+        )
+    )
+    slots_pending = pending_result.scalar() or 0
+    return EventJobRoleOut(
+        id=ejr.id, job_role_id=ejr.job_role_id,
+        slots_required=ejr.slots_required, slots_filled=ejr.slots_filled,
+        slots_pending=slots_pending, hourly_rate_override=ejr.hourly_rate_override,
+        start_time=ejr.start_time,
+    )
 
 class EventJobRoleSlotsUpdate(BaseModel):
     slots_required: int
