@@ -264,7 +264,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
         await Promise.all([
           ...eventRoles.map(er => {
             const ns = roleSlotsEdit[er.id] ?? er.slots_required
-            return ns === er.slots_required ? Promise.resolve() : api.patch(`/events/${eventId}/job-roles/${er.job_role_id}/slots`, { slots_required: ns })
+            return ns === er.slots_required ? Promise.resolve() : api.patch(`/events/${eventId}/job-roles/${er.id}/slots`, { slots_required: ns })
           }),
           ...eventRoles.map(er => {
             const newRate = roleRatesEdit[er.id]

@@ -881,7 +881,8 @@ async def update_event_job_role_slots(
     current_user: AdminDep,
     db: AsyncSession = Depends(get_db),
 ):
-    """Actualiza la cantidad de cupos requeridos para un rol en el evento."""
+    """Actualiza la cantidad de cupos requeridos para un rol en el evento.
+    job_role_id can be the event_job_role.id (row ID) for unique identification."""
     company_id = current_user["company_id"]
     event = await db.get(Event, event_id)
     if not event or event.company_id != company_id:
@@ -889,13 +890,18 @@ async def update_event_job_role_slots(
     if event.status == "cancelled":
         raise HTTPException(status_code=400, detail="No se puede modificar un evento cancelado")
 
-    result = await db.execute(
-        select(EventJobRole).where(
-            EventJobRole.event_id == event_id,
-            EventJobRole.job_role_id == job_role_id,
+    # Try by event_job_role.id first (new behavior for repeated roles)
+    ejr = await db.get(EventJobRole, job_role_id)
+    if not ejr or ejr.event_id != event_id:
+        # Fallback: try by job_role_id (legacy)
+        result = await db.execute(
+            select(EventJobRole).where(
+                EventJobRole.event_id == event_id,
+                EventJobRole.job_role_id == job_role_id,
+            )
         )
-    )
-    ejr = result.scalar_one_or_none()
+        ejr = result.scalars().first()
+    
     if not ejr:
         raise HTTPException(status_code=404, detail="Rol no encontrado en este evento")
 
