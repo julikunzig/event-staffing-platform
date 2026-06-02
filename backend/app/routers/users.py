@@ -497,3 +497,78 @@ async def update_user_rates(
 
     await db.flush()
     return {"updated": updated, "count": len(updated)}
+
+
+# ── Perfil completo de un empleado (vista admin) ─────────────────────────
+
+@router.get("/{user_id}/profile")
+async def get_user_full_profile(
+    user_id: int,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get complete profile of an employee for admin view."""
+    from app.models import EmployeeJobRole, JobRole, UserDocument
+    company_id = current_user["company_id"]
+
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Get membership in this company
+    membership_result = await db.execute(
+        select(UserCompanyMembership, Profile)
+        .join(Profile, Profile.id == UserCompanyMembership.profile_id)
+        .where(
+            UserCompanyMembership.user_id == user_id,
+            UserCompanyMembership.company_id == company_id,
+        )
+    )
+    membership_row = membership_result.first()
+    profile_code = membership_row[1].code if membership_row else "unknown"
+
+    # Get assigned roles with rates
+    roles_result = await db.execute(
+        select(EmployeeJobRole, JobRole)
+        .join(JobRole, JobRole.id == EmployeeJobRole.job_role_id)
+        .where(
+            EmployeeJobRole.user_id == user_id,
+            EmployeeJobRole.company_id == company_id,
+        )
+        .order_by(JobRole.name)
+    )
+    roles = [
+        {
+            "id": ejr.id,
+            "role_name": role.name,
+            "base_rate": float(role.hourly_rate),
+            "hourly_rate_override": float(ejr.hourly_rate_override) if ejr.hourly_rate_override else None,
+            "effective_rate": float(ejr.hourly_rate_override) if ejr.hourly_rate_override else float(role.hourly_rate),
+        }
+        for ejr, role in roles_result.all()
+    ]
+
+    # Get documents
+    docs_result = await db.execute(
+        select(UserDocument).where(UserDocument.user_id == user_id).order_by(UserDocument.created_at.desc())
+    )
+    documents = [
+        {"id": d.id, "name": d.name, "url": d.url, "doc_type": d.doc_type}
+        for d in docs_result.scalars().all()
+    ]
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "address": user.address,
+        "city": user.city,
+        "state": user.state,
+        "zip_code": user.zip_code,
+        "preferred_lang": user.preferred_lang,
+        "profile": profile_code,
+        "is_active": user.is_active,
+        "roles": roles,
+        "documents": documents,
+    }

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import api from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { Input } from '@/components/ui/input'
-import { Search, UserPlus, Link2, ChevronLeft, ChevronRight, Pencil, X, Check, Users } from 'lucide-react'
+import { Search, UserPlus, Link2, ChevronLeft, ChevronRight, Pencil, X, Check, Users, Eye } from 'lucide-react'
 import ConfirmDialog from '@/pages/ConfirmDialog'
 
 const GREEN      = '#2db84b'
@@ -71,6 +71,8 @@ export default function UsersPage() {
   const [success, setSuccess]           = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
+  const [viewProfile, setViewProfile] = useState<any>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
 
   const loadMembers = useCallback(async () => {
     setLoading(true)
@@ -401,6 +403,11 @@ export default function UsersPage() {
                           {profileNames[member.profile] || member.profile}
                         </span>
                       )})()}
+                      <button onClick={async () => { setProfileLoading(true); try { const r = await api.get(`/users/${member.id}/profile`); setViewProfile(r.data) } catch {} finally { setProfileLoading(false) } }}
+                        style={{ padding: '5px 8px', borderRadius: '7px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', color: '#3b82f6', display: 'flex', alignItems: 'center' }}
+                        title="Ver perfil">
+                        <Eye size={13} />
+                      </button>
                       <button onClick={async () => { setEditingId(member.id); setEditName(member.name); setEditPhone(member.phone || ''); setEditProfile(member.profile); setError(''); setSuccess(''); try { const r = await api.get(`/users/${member.id}/rates`); setEditRates(r.data) } catch { setEditRates([]) } }}
                         style={{ padding: '5px 8px', borderRadius: '7px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center' }}>
                         <Pencil size={13} />
@@ -447,6 +454,70 @@ export default function UsersPage() {
       {confirmDialog && (
         <ConfirmDialog title={confirmDialog.title} message={confirmDialog.message} danger
           onConfirm={confirmDialog.onConfirm} onCancel={() => setConfirmDialog(null)} />
+      )}
+
+      {/* Profile View Modal */}
+      {viewProfile && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onClick={() => setViewProfile(null)}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: '16px', padding: '24px', maxWidth: '500px', width: '100%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#111827' }}>Perfil del Empleado</h3>
+              <button onClick={() => setViewProfile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '4px' }}><X size={18} /></button>
+            </div>
+
+            {/* Info básica */}
+            <div style={{ marginBottom: '16px', padding: '12px', background: '#f9fafb', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
+              <p style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 700, color: '#111827' }}>{viewProfile.name}</p>
+              <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#6b7280' }}>📧 {viewProfile.email}</p>
+              {viewProfile.phone && <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#6b7280' }}>📱 {viewProfile.phone}</p>}
+              {viewProfile.address && <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#6b7280' }}>📍 {[viewProfile.address, viewProfile.city, viewProfile.state, viewProfile.zip_code].filter(Boolean).join(', ')}</p>}
+              <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
+                <span style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: 600, border: '1px solid #bbf7d0' }}>
+                  {viewProfile.profile === 'admin' ? 'Administrador' : viewProfile.profile === 'coordinator' ? 'Coordinador' : viewProfile.profile === 'employee' ? 'Empleado' : viewProfile.profile}
+                </span>
+              </p>
+            </div>
+
+            {/* Roles */}
+            {viewProfile.roles && viewProfile.roles.length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Roles Laborales</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {viewProfile.roles.map((r: any) => (
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1d4ed8' }}>{r.role_name}</span>
+                      <span style={{ fontSize: '12px', color: '#374151', fontWeight: 500 }}>
+                        ${r.effective_rate.toFixed(2)}/h
+                        {r.hourly_rate_override && <span style={{ fontSize: '10px', color: '#9ca3af', marginLeft: '4px' }}>(base: ${r.base_rate.toFixed(2)})</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Documentos */}
+            {viewProfile.documents && viewProfile.documents.length > 0 && (
+              <div>
+                <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Documentos</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {viewProfile.documents.map((d: any) => (
+                    <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb', textDecoration: 'none', fontSize: '12px', color: '#374151' }}>
+                      <span>📎</span>
+                      <span style={{ flex: 1 }}>{d.name}</span>
+                      <span style={{ color: '#9ca3af', fontSize: '10px' }}>{d.doc_type}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {viewProfile.documents && viewProfile.documents.length === 0 && viewProfile.roles && viewProfile.roles.length === 0 && (
+              <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center' }}>Sin roles ni documentos registrados</p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
