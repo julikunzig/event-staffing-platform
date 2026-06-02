@@ -1,14 +1,13 @@
-from sqlalchemy import ForeignKey, Integer, UniqueConstraint, CheckConstraint, Numeric
+from sqlalchemy import ForeignKey, Integer, CheckConstraint, Numeric, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, time
 
 
 class EventJobRole(Base):
     __tablename__ = "event_job_roles"
     __table_args__ = (
-        UniqueConstraint("event_id", "job_role_id", name="uq_event_job_role"),
         CheckConstraint("slots_required > 0", name="chk_slots_required"),
         CheckConstraint("slots_filled >= 0", name="chk_slots_filled"),
         CheckConstraint("slots_filled <= slots_required", name="chk_slots_not_exceeded"),
@@ -20,6 +19,7 @@ class EventJobRole(Base):
     slots_required: Mapped[int] = mapped_column(Integer, nullable=False)
     slots_filled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     hourly_rate_override: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

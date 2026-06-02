@@ -19,6 +19,7 @@ class EventJobRoleIn(BaseModel):
     job_role_id: int
     slots_required: int
     hourly_rate_override: Decimal | None = None
+    start_time: time | None = None
 
 
 def parse_date(value: str | date) -> date:
@@ -99,6 +100,7 @@ class EventJobRoleOut(BaseModel):
     slots_filled: int
     slots_pending: int = 0   # pending + invited (esperando aprobación)
     hourly_rate_override: Decimal | None = None
+    start_time: time | None = None
 
     model_config = {"from_attributes": True}
 
@@ -189,6 +191,7 @@ async def create_event(
             slots_required=jr.slots_required,
             slots_filled=0,
             hourly_rate_override=jr.hourly_rate_override,
+            start_time=jr.start_time,
         )
         db.add(ejr)
 

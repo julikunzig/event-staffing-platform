@@ -14,8 +14,8 @@ const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','
   'ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
 
 interface JobRole      { id: number; name: string; hourly_rate: string; is_active: boolean }
-interface RoleSlot     { job_role_id: number; slots_required: number; hourly_rate_override?: number | null }
-interface EventJobRole { id: number; job_role_id: number; slots_required: number; slots_filled: number; slots_pending?: number; hourly_rate_override?: string | null }
+interface RoleSlot     { job_role_id: number; slots_required: number; hourly_rate_override?: number | null; start_time?: string }
+interface EventJobRole { id: number; job_role_id: number; slots_required: number; slots_filled: number; slots_pending?: number; hourly_rate_override?: string | null; start_time?: string | null }
 interface Coordinator  { user_id: number; name: string; email: string }
 interface EventDocument{ id: number; name: string; url: string; created_at: string }
 interface PendingDoc   { name: string; url: string }
@@ -72,6 +72,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
   const [eventRoles, setEventRoles]   = useState<EventJobRole[]>([])
   const [roleSlotsEdit, setRoleSlotsEdit] = useState<Record<number, number>>({})
   const [roleRatesEdit, setRoleRatesEdit] = useState<Record<number, string>>({})  // {job_role_id: "25.00"}
+  const [roleTimesEdit, setRoleTimesEdit] = useState<Record<number, string>>({})  // {event_job_role_id: "15:00"}
   const [newRoleId, setNewRoleId]     = useState(0)
   const [newRoleSlots, setNewRoleSlots] = useState(1)
   const [addingRole, setAddingRole]   = useState(false)
@@ -126,9 +127,11 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
         setEventRoles(erRes.data); setJobRoles(jrRes.data)
         const slots: Record<number, number> = {}
         const rates: Record<number, string> = {}
-        erRes.data.forEach((r: EventJobRole) => { slots[r.job_role_id] = r.slots_required; if (r.hourly_rate_override) rates[r.job_role_id] = r.hourly_rate_override })
+        const times: Record<number, string> = {}
+        erRes.data.forEach((r: EventJobRole) => { slots[r.job_role_id] = r.slots_required; if (r.hourly_rate_override) rates[r.job_role_id] = r.hourly_rate_override; if (r.start_time) times[r.id] = r.start_time })
         setRoleSlotsEdit(slots)
         setRoleRatesEdit(rates)
+        setRoleTimesEdit(times)
         setAllCoords((acRes as any).data)
         setSelectedCoordIds(((ecRes as any).data as Coordinator[]).map((c: Coordinator) => c.user_id))
         setDocuments((docsRes as any).data)
@@ -435,8 +438,15 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                     {/* Create mode: role rows */}
                     {mode === 'create' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', fontSize: '10px', color: '#6b7280', fontWeight: 600, padding: '0 4px' }}>
+                          <span style={{ flex: 1, minWidth: '140px' }}>Rol *</span>
+                          <span style={{ width: '80px', textAlign: 'center' }}>Hora inicio</span>
+                          <span style={{ width: '55px', textAlign: 'center' }}>Cupos *</span>
+                          <span style={{ width: '85px', textAlign: 'center' }}>$/h</span>
+                          <span style={{ width: '24px' }}></span>
+                        </div>
                         {roleSlots.map((slot, i) => (
-                          <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                             <div style={{ flex: 1, position: 'relative', minWidth: '140px' }}>
                               <select style={{ ...selectStyle, paddingRight: '28px' }} value={slot.job_role_id}
                                 onChange={e => updateRoleRow(i, 'job_role_id', Number(e.target.value))}>
@@ -445,20 +455,24 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                               </select>
                               <ChevronDown size={13} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
                             </div>
+                            <input type="time" value={slot.start_time || startTime || ''}
+                              onChange={e => { const u = [...roleSlots]; u[i] = { ...u[i], start_time: e.target.value }; setRoleSlots(u) }}
+                              style={{ ...fieldStyle, width: '80px', padding: '0 4px', fontSize: '12px' }}
+                              title="Hora inicio de este rol" />
                             <input type="number" min={1} value={slot.slots_required}
                               onChange={e => updateRoleRow(i, 'slots_required', Number(e.target.value))}
-                              style={{ ...fieldStyle, width: '60px', textAlign: 'center', padding: '0 6px' }}
+                              style={{ ...fieldStyle, width: '55px', textAlign: 'center', padding: '0 4px' }}
                               title="Cupos" />
                             <input type="number" min={0} step="0.01"
-                              placeholder={slot.job_role_id ? `$${jobRoles.find(r => r.id === slot.job_role_id)?.hourly_rate || '0'}/h` : '$/h'}
+                              placeholder={slot.job_role_id ? `$${jobRoles.find(r => r.id === slot.job_role_id)?.hourly_rate || '0'}` : '$/h'}
                               value={slot.hourly_rate_override ?? ''}
                               onChange={e => {
                                 const u = [...roleSlots]
                                 u[i] = { ...u[i], hourly_rate_override: e.target.value ? Number(e.target.value) : null }
                                 setRoleSlots(u)
                               }}
-                              style={{ ...fieldStyle, width: '90px', textAlign: 'center', padding: '0 6px', fontSize: '12px' }}
-                              title="Tarifa para este evento (opcional, dejar vacío para usar la del rol)" />
+                              style={{ ...fieldStyle, width: '85px', textAlign: 'center', padding: '0 4px', fontSize: '12px' }}
+                              title="Tarifa para este evento (opcional)" />
                             {roleSlots.length > 1 && (
                               <button type="button" onClick={() => removeRoleRow(i)}
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px' }}>
@@ -467,9 +481,6 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                             )}
                           </div>
                         ))}
-                        <p style={{ margin: '4px 0 0', fontSize: '10px', color: '#9ca3af' }}>
-                          Rol · Cupos · Tarifa evento (opcional)
-                        </p>
                       </div>
                     )}
 
@@ -486,7 +497,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                               borderRadius: '10px', border: `1px solid ${changed ? '#fde68a' : '#e5e7eb'}`,
                               background: changed ? '#fffbeb' : '#f9fafb', transition: 'all 0.15s', flexWrap: 'wrap',
                             }}>
-                              <div style={{ flex: 1, minWidth: '120px' }}>
+                              <div style={{ flex: 1, minWidth: '100px' }}>
                                 <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{getRoleName(er.job_role_id)}</p>
                                 <div style={{ display: 'flex', gap: '10px', marginTop: '2px', fontSize: '11px', color: '#9ca3af' }}>
                                   <span>✅ {er.slots_filled}</span>
@@ -495,16 +506,20 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                                   {changed && <span style={{ color: '#b45309', fontWeight: 600 }}>{er.slots_required} → {current}</span>}
                                 </div>
                               </div>
+                              <input type="time" value={roleTimesEdit[er.id] ?? er.start_time ?? ''}
+                                onChange={e => setRoleTimesEdit(prev => ({ ...prev, [er.id]: e.target.value }))}
+                                style={{ ...fieldStyle, width: '80px', padding: '0 4px', fontSize: '12px' }}
+                                title="Hora inicio" />
                               <input type="number" min={er.slots_filled} value={current}
                                 onChange={e => setRoleSlotsEdit(prev => ({ ...prev, [er.job_role_id]: Math.max(er.slots_filled, Number(e.target.value)) }))}
-                                style={{ ...fieldStyle, width: '60px', textAlign: 'center', padding: '0 6px' }}
+                                style={{ ...fieldStyle, width: '55px', textAlign: 'center', padding: '0 4px' }}
                                 title="Cupos" />
                               <input type="number" min={0} step="0.01"
-                                placeholder={`$${getRoleRate(er.job_role_id)}/h`}
+                                placeholder={`$${getRoleRate(er.job_role_id)}`}
                                 value={roleRatesEdit[er.job_role_id] ?? ''}
                                 onChange={e => setRoleRatesEdit(prev => ({ ...prev, [er.job_role_id]: e.target.value }))}
-                                style={{ ...fieldStyle, width: '90px', textAlign: 'center', padding: '0 6px', fontSize: '12px' }}
-                                title="Tarifa para este evento (opcional)" />
+                                style={{ ...fieldStyle, width: '85px', textAlign: 'center', padding: '0 4px', fontSize: '12px' }}
+                                title="Tarifa para este evento" />
                             </div>
                           )
                         })}
