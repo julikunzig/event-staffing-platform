@@ -291,7 +291,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
 
   const getRoleName = (roleId: number) => jobRoles.find(r => r.id === roleId)?.name || `Rol #${roleId}`
   const getRoleRate = (roleId: number) => jobRoles.find(r => r.id === roleId)?.hourly_rate || '0'
-  const availableRoles = jobRoles.filter(r => r.is_active && !eventRoles.some(er => er.job_role_id === r.id))
+  const availableRoles = jobRoles.filter(r => r.is_active)
 
   const statusColors: Record<string, { bg: string; color: string }> = {
     created:        { bg: '#f3f4f6', color: '#6b7280' },

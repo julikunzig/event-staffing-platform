@@ -1014,16 +1014,7 @@ async def add_event_job_role(
     if event.status == "cancelled":
         raise HTTPException(status_code=400, detail="No se puede modificar un evento cancelado")
 
-    # Verificar que el rol no existe ya en el evento
-    existing = await db.execute(
-        select(EventJobRole).where(
-            EventJobRole.event_id == event_id,
-            EventJobRole.job_role_id == body.job_role_id,
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Este rol ya existe en el evento")
-
+    # Verificar que el rol pertenece a la empresa
     role = await db.get(JobRole, body.job_role_id)
     if not role or role.company_id != company_id:
         raise HTTPException(status_code=400, detail="Rol no válido")
