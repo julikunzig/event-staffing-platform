@@ -209,10 +209,16 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
       // Check if this specific event_job_role has available slots
       const er = eventRoles.find(r => r.id === erId)
       if (er) {
-        const currentlySelected = Array.from(next.values()).filter(v => v === erId).length
-        const available = er.slots_required - er.slots_filled - (er.slots_pending || 0)
-        if (currentlySelected >= available) {
-          setInviteResult(`⚠️ No hay más cupos disponibles para este turno (${er.slots_filled + (er.slots_pending || 0) + currentlySelected}/${er.slots_required})`)
+        // Count all employees already selected for this SAME event_job_role
+        const selectedForThisShift = Array.from(next.values()).filter(v => v === erId).length
+        // Also count selected for ANY event_job_role with same job_role_id
+        const sameRoleErs = eventRoles.filter(r => r.job_role_id === er.job_role_id)
+        const totalSlotsForRole = sameRoleErs.reduce((sum, r) => sum + r.slots_required, 0)
+        const totalFilledForRole = sameRoleErs.reduce((sum, r) => sum + r.slots_filled + (r.slots_pending || 0), 0)
+        const totalSelectedForRole = Array.from(next.values()).filter(v => sameRoleErs.some(r => r.id === v)).length
+        
+        if (totalSelectedForRole + totalFilledForRole >= totalSlotsForRole) {
+          setInviteResult(`⚠️ No hay más cupos disponibles para este rol (${totalFilledForRole + totalSelectedForRole}/${totalSlotsForRole})`)
           return
         }
       }
