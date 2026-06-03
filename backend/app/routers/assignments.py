@@ -28,8 +28,10 @@ class AssignmentOut(BaseModel):
     user_id: int
     company_id: int
     job_role_id: int
+    event_job_role_id: int | None = None
     status: str
     assigned_by: int | None
+    shift_start_time: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -1016,7 +1018,7 @@ async def my_invitations(current_user: AuthDep, db: AsyncSession = Depends(get_d
     return result.scalars().all()
 
 
-@router.get("/my-assignments", response_model=list[AssignmentOut])
+@router.get("/my-assignments")
 async def my_assignments(current_user: AuthDep, db: AsyncSession = Depends(get_db)):
     user_id = int(current_user["sub"])
     company_id = current_user["company_id"]
@@ -1026,7 +1028,24 @@ async def my_assignments(current_user: AuthDep, db: AsyncSession = Depends(get_d
             EventAssignment.company_id == company_id,
         )
     )
-    return result.scalars().all()
+    assignments = result.scalars().all()
+    
+    # Enrich with shift_start_time from event_job_role
+    output = []
+    for a in assignments:
+        shift_time = None
+        if a.event_job_role_id:
+            ejr = await db.get(EventJobRole, a.event_job_role_id)
+            if ejr and ejr.start_time:
+                shift_time = str(ejr.start_time)[:5]
+        output.append({
+            "id": a.id, "event_id": a.event_id, "user_id": a.user_id,
+            "company_id": a.company_id, "job_role_id": a.job_role_id,
+            "event_job_role_id": a.event_job_role_id,
+            "status": a.status, "assigned_by": a.assigned_by,
+            "shift_start_time": shift_time,
+        })
+    return output
 
 
 class AssignmentDetailOut(BaseModel):

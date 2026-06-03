@@ -201,8 +201,25 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
     return e.name.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || (e.phone || '').includes(q)
   })
 
-  const toggleEmployee = (empId: number, roleId: number) => {
-    const next = new Map(selected); if (next.has(empId)) next.delete(empId); else next.set(empId, roleId); setSelected(next)
+  const toggleEmployee = (empId: number, erId: number) => {
+    const next = new Map(selected)
+    if (next.has(empId)) {
+      next.delete(empId)
+    } else {
+      // Check if this specific event_job_role has available slots
+      const er = eventRoles.find(r => r.id === erId)
+      if (er) {
+        const currentlySelected = Array.from(next.values()).filter(v => v === erId).length
+        const available = er.slots_required - er.slots_filled - (er.slots_pending || 0)
+        if (currentlySelected >= available) {
+          setInviteResult(`⚠️ No hay más cupos disponibles para este turno (${er.slots_filled + (er.slots_pending || 0) + currentlySelected}/${er.slots_required})`)
+          return
+        }
+      }
+      next.set(empId, erId)
+      setInviteResult('')
+    }
+    setSelected(next)
   }
 
   const handleBulkInvite = async () => {

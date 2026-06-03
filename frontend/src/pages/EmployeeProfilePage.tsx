@@ -7,7 +7,7 @@ import { Clock, MapPin, CheckCircle, PlayCircle, StopCircle, PauseCircle, PlayIc
 const GREEN      = '#2db84b'
 const GREEN_DARK = '#1e9038'
 
-interface Assignment { id: number; event_id: number; job_role_id: number; status: string }
+interface Assignment { id: number; event_id: number; job_role_id: number; status: string; shift_start_time?: string | null }
 interface Event { id: number; name: string; event_date: string; start_time: string; address: string; city: string | null; state: string | null; status: string; notes: string | null }
 interface Shift { id: number; assignment_id: number; clock_in: string | null; clock_out: string | null; is_paused: boolean; pause_start: string | null; total_pause_minutes: string; hours_worked: string | null; total_pay: string | null; hourly_rate_snapshot: string }
 interface JobRole { id: number; name: string }
@@ -122,7 +122,10 @@ export default function EmployeeProfilePage() {
     } finally { setActionLoading(null) }
   }
 
-  const isClockInAllowed = (ev: Event) => (new Date(`${ev.event_date}T${ev.start_time}`).getTime() - Date.now()) / 60000 <= shiftStartMinutes
+  const isClockInAllowed = (ev: Event, assignment?: Assignment) => {
+    const timeToUse = assignment?.shift_start_time || ev.start_time
+    return (new Date(`${ev.event_date}T${timeToUse}`).getTime() - Date.now()) / 60000 <= shiftStartMinutes
+  }
 
   const formatTime = (iso: string | null) => {
     if (!iso) return '—'
@@ -188,7 +191,7 @@ export default function EmployeeProfilePage() {
               if (!ev) return null
               const isLoading = actionLoading === a.id
               const hasIn = !!shift?.clock_in, hasOut = !!shift?.clock_out
-              const clockAllowed = isClockInAllowed(ev)
+              const clockAllowed = isClockInAllowed(ev, a)
               const st = statusStyle(hasIn, hasOut, shift?.is_paused || false)
 
               return (
@@ -197,7 +200,7 @@ export default function EmployeeProfilePage() {
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: '14px', color: '#111827' }}>{ev.name}</p>
-                      <p style={{ margin: '0 0 2px', fontSize: '12px', color: '#9ca3af' }}>{new Date(ev.event_date+'T00:00:00').toLocaleDateString('es')} · {ev.start_time}</p>
+                      <p style={{ margin: '0 0 2px', fontSize: '12px', color: '#9ca3af' }}>{new Date(ev.event_date+'T00:00:00').toLocaleDateString('es')} · {a.shift_start_time || ev.start_time}</p>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#9ca3af' }}>
                         <MapPin size={12} /><span>{[ev.address, ev.city, ev.state].filter(Boolean).join(', ')}</span>
                       </div>
