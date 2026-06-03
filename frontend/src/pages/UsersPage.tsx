@@ -468,11 +468,18 @@ export default function UsersPage() {
 
             {/* Info básica */}
             <div style={{ marginBottom: '16px', padding: '12px', background: '#f9fafb', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
-              <p style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 700, color: '#111827' }}>{viewProfile.name}</p>
-              <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#6b7280' }}>📧 {viewProfile.email}</p>
-              {viewProfile.phone && <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#6b7280' }}>📱 {viewProfile.phone}</p>}
-              {viewProfile.address && <p style={{ margin: '0 0 2px', fontSize: '13px', color: '#6b7280' }}>📍 {[viewProfile.address, viewProfile.city, viewProfile.state, viewProfile.zip_code].filter(Boolean).join(', ')}</p>}
-              <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
+              <p style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700, color: '#111827' }}>{viewProfile.name}</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: '13px' }}>
+                <div><span style={{ color: '#6b7280' }}>Email:</span> <span style={{ color: '#111827', fontWeight: 500 }}>{viewProfile.email}</span></div>
+                <div><span style={{ color: '#6b7280' }}>Teléfono:</span> <span style={{ color: '#111827', fontWeight: 500 }}>{viewProfile.phone || '—'}</span></div>
+                <div><span style={{ color: '#6b7280' }}>Dirección:</span> <span style={{ color: '#111827', fontWeight: 500 }}>{viewProfile.address || '—'}</span></div>
+                <div><span style={{ color: '#6b7280' }}>Ciudad:</span> <span style={{ color: '#111827', fontWeight: 500 }}>{viewProfile.city || '—'}</span></div>
+                <div><span style={{ color: '#6b7280' }}>Estado:</span> <span style={{ color: '#111827', fontWeight: 500 }}>{viewProfile.state || '—'}</span></div>
+                <div><span style={{ color: '#6b7280' }}>ZIP Code:</span> <span style={{ color: '#111827', fontWeight: 500 }}>{viewProfile.zip_code || '—'}</span></div>
+                <div><span style={{ color: '#6b7280' }}>Idioma:</span> <span style={{ color: '#111827', fontWeight: 500 }}>{viewProfile.preferred_lang === 'en' ? 'English' : 'Español'}</span></div>
+                <div><span style={{ color: '#6b7280' }}>Estado:</span> <span style={{ color: viewProfile.is_active ? '#15803d' : '#dc2626', fontWeight: 600 }}>{viewProfile.is_active ? 'Activo' : 'Inactivo'}</span></div>
+              </div>
+              <p style={{ margin: '8px 0 0', fontSize: '12px' }}>
                 <span style={{ background: '#f0fdf4', color: '#15803d', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: 600, border: '1px solid #bbf7d0' }}>
                   {viewProfile.profile === 'admin' ? 'Administrador' : viewProfile.profile === 'coordinator' ? 'Coordinador' : viewProfile.profile === 'employee' ? 'Empleado' : viewProfile.profile}
                 </span>
