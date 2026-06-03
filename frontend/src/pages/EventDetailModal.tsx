@@ -337,7 +337,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
               )}
             </div>
             <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-              {!loading && isAdmin(user) && event?.status !== 'cancelled' && onEdit && (
+              {!loading && isAdmin(user) && event?.status !== 'cancelled' && event?.status !== 'finished' && onEdit && (
                 <button onClick={() => { onClose(); onEdit(eventId) }}
                   style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 12px', borderRadius: '8px', border: `1px solid ${GREEN}`, background: '#f0fdf4', color: GREEN, fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
                   <Pencil size={13} />Editar
