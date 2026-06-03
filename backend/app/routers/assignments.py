@@ -919,13 +919,17 @@ async def accept_invitation(
                         )
 
     # Al aceptar, la invitación ya estaba contada como 'pending' en los cupos activos
-    ejr_result = await db.execute(
-        select(EventJobRole).where(
-            EventJobRole.event_id == assignment.event_id,
-            EventJobRole.job_role_id == assignment.job_role_id,
+    ejr = None
+    if assignment.event_job_role_id:
+        ejr = await db.get(EventJobRole, assignment.event_job_role_id)
+    if not ejr:
+        ejr_result = await db.execute(
+            select(EventJobRole).where(
+                EventJobRole.event_id == assignment.event_id,
+                EventJobRole.job_role_id == assignment.job_role_id,
+            )
         )
-    )
-    ejr = ejr_result.scalar_one_or_none()
+        ejr = ejr_result.scalars().first()
     if not ejr:
         raise HTTPException(status_code=400, detail="Rol no encontrado en el evento")
 
