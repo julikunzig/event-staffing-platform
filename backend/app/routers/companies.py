@@ -296,6 +296,9 @@ class WeeklyConfigUpdate(BaseModel):
     min_shift_hours: int | None = None
     shift_start_minutes: int | None = None
     horas_entre_eventos: int | None = None
+    admin_can_clock_in_all: bool | None = None
+    days_to_reject_event: int | None = None
+    geolocation_enabled: bool | None = None
 
 
 @router.patch("/{company_id}/weekly-config", response_model=dict)
@@ -326,8 +329,13 @@ async def update_weekly_config(
             config.min_shift_hours = Decimal(str(body.min_shift_hours))
         if body.horas_entre_eventos is not None:
             config.horas_entre_eventos = body.horas_entre_eventos
+        if body.admin_can_clock_in_all is not None:
+            config.admin_can_clock_in_all = body.admin_can_clock_in_all
+        if body.days_to_reject_event is not None:
+            config.days_to_reject_event = body.days_to_reject_event
+        if body.geolocation_enabled is not None:
+            config.geolocation_enabled = body.geolocation_enabled
     else:
-        # Crear nueva configuración con valores por defecto
         config = WeeklyHoursConfig(
             company_id=company_id,
             weekly_hours_limit=Decimal(str(body.weekly_hours_limit or 40)),
@@ -335,6 +343,9 @@ async def update_weekly_config(
             week_start_day="monday",
             week_end_day="sunday",
             horas_entre_eventos=body.horas_entre_eventos or 0,
+            admin_can_clock_in_all=body.admin_can_clock_in_all or False,
+            days_to_reject_event=body.days_to_reject_event or 0,
+            geolocation_enabled=body.geolocation_enabled if body.geolocation_enabled is not None else True,
         )
         db.add(config)
     
@@ -353,6 +364,9 @@ async def update_weekly_config(
         "min_shift_hours": config.min_shift_hours,
         "shift_start_minutes": company.shift_start_minutes_before,
         "horas_entre_eventos": config.horas_entre_eventos,
+        "admin_can_clock_in_all": config.admin_can_clock_in_all,
+        "days_to_reject_event": config.days_to_reject_event,
+        "geolocation_enabled": config.geolocation_enabled,
     }
 
 

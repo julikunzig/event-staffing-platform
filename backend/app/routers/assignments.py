@@ -1100,3 +1100,77 @@ async def list_event_assignments_detailed(
         )
         for a, u, r in rows
     ]
+
+
+@router.patch("/{assignment_id}/withdraw", response_model=AssignmentOut)
+async def withdraw_from_event(
+    assignment_id: int,
+    current_user: AuthDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Employee withdraws from a confirmed event (status approved → removed).
+    Only allowed if within the days_to_reject_event window."""
+    from datetime import date, timedelta
+    from app.models import WeeklyHoursConfig
+
+    user_id = int(current_user["sub"])
+    company_id = current_user.get("company_id")
+
+    assignment = await db.get(EventAssignment, assignment_id)
+    if not assignment or assignment.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+    if assignment.status != "approved":
+        raise HTTPException(status_code=400, detail="Solo puedes retirarte de eventos confirmados")
+
+    # Get config for days_to_reject_event
+    config_result = await db.execute(
+        select(WeeklyHoursConfig).where(WeeklyHoursConfig.company_id == company_id)
+    )
+    config = config_result.scalar_one_or_none()
+    days_to_reject = config.days_to_reject_event if config else 0
+
+    if days_to_reject <= 0:
+        raise HTTPException(status_code=400, detail="No está permitido retirarse de eventos confirmados en esta empresa")
+
+    # Check if within the allowed window
+    event = await db.get(Event, assignment.event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    today = date.today()
+    days_until_event = (event.event_date - today).days
+
+    if days_until_event < days_to_reject:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No puedes retirarte. Solo puedes hacerlo con al menos {days_to_reject} día(s) de anticipación. Faltan {days_until_event} día(s) para el evento."
+        )
+
+    # Withdraw: change status to removed and free the slot
+    assignment.status = "removed"
+
+    # Free the slot
+    ejr = None
+    if assignment.event_job_role_id:
+        ejr = await db.get(EventJobRole, assignment.event_job_role_id)
+    if not ejr:
+        ejr_result = await db.execute(
+            select(EventJobRole).where(EventJobRole.event_id == event.id, EventJobRole.job_role_id == assignment.job_role_id)
+        )
+        ejr = ejr_result.scalars().first()
+    if ejr and ejr.slots_filled > 0:
+        ejr.slots_filled -= 1
+
+    await db.flush()
+
+    # Re-evaluate event status
+    from app.services.event_status import check_and_update_event_status
+    await check_and_update_event_status(assignment.event_id, db)
+
+    return {
+        "id": assignment.id, "event_id": assignment.event_id, "user_id": assignment.user_id,
+        "company_id": assignment.company_id, "job_role_id": assignment.job_role_id,
+        "event_job_role_id": assignment.event_job_role_id,
+        "status": assignment.status, "assigned_by": assignment.assigned_by,
+        "shift_start_time": None,
+    }

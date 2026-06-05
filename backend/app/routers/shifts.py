@@ -263,7 +263,15 @@ async def clock_in(
             # Si hay error en parsing, continuar
             pass
 
-    if event.latitude and event.longitude and body.latitude != 0 and body.longitude != 0:
+    # Check if geolocation is enabled for this company
+    from app.models import WeeklyHoursConfig
+    geo_config_result = await db.execute(
+        select(WeeklyHoursConfig).where(WeeklyHoursConfig.company_id == assignment.company_id)
+    )
+    geo_config = geo_config_result.scalar_one_or_none()
+    geolocation_enabled = geo_config.geolocation_enabled if geo_config else True
+
+    if geolocation_enabled and event.latitude and event.longitude and body.latitude != 0 and body.longitude != 0:
         within, distance = is_within_radius(
             body.latitude, body.longitude,
             float(event.latitude), float(event.longitude),
@@ -746,3 +754,115 @@ async def get_event_active_shifts(
         )
         for shift, assignment, user, role in rows
     ]
+
+
+# ── Bulk clock-in by admin/coordinator ─────────────────────────────────────
+
+class BulkClockInRequest(BaseModel):
+    event_id: int
+    clock_in_time: str  # HH:MM format
+
+
+@router.post("/bulk-clock-in", status_code=200)
+async def bulk_clock_in(
+    body: BulkClockInRequest,
+    current_user: Annotated[dict, Depends(require_role("super_admin", "admin", "coordinator"))],
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin/coordinator registers clock-in for all approved employees of an event.
+    Only works if admin_can_clock_in_all is enabled in company config."""
+    from app.models import WeeklyHoursConfig
+    from datetime import datetime as dt_class
+
+    company_id = current_user["company_id"]
+
+    # Check config
+    config_result = await db.execute(
+        select(WeeklyHoursConfig).where(WeeklyHoursConfig.company_id == company_id)
+    )
+    config = config_result.scalar_one_or_none()
+    if not config or not config.admin_can_clock_in_all:
+        raise HTTPException(status_code=403, detail="La funcionalidad de registro masivo de hora inicio no está habilitada para esta empresa")
+
+    event = await db.get(Event, body.event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    # Parse the clock-in time
+    try:
+        clock_in_time = dt_class.strptime(body.clock_in_time, "%H:%M").time()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de hora inválido. Use HH:MM")
+
+    # Combine event date + provided time
+    clock_in_dt = dt_class.combine(event.event_date, clock_in_time)
+
+    # Get all approved assignments without existing shifts
+    assignments_result = await db.execute(
+        select(EventAssignment).where(
+            EventAssignment.event_id == body.event_id,
+            EventAssignment.status == "approved",
+        )
+    )
+    assignments = assignments_result.scalars().all()
+
+    created = 0
+    skipped = 0
+    for assignment in assignments:
+        # Check if shift already exists
+        existing_shift = await db.execute(
+            select(Shift).where(Shift.assignment_id == assignment.id)
+        )
+        if existing_shift.scalar_one_or_none():
+            skipped += 1
+            continue
+
+        # Get hourly rate
+        role = await db.get(JobRole, assignment.job_role_id)
+        ejr = None
+        if assignment.event_job_role_id:
+            ejr = await db.get(EventJobRole, assignment.event_job_role_id)
+        if not ejr:
+            ejr_q = await db.execute(
+                select(EventJobRole).where(EventJobRole.event_id == body.event_id, EventJobRole.job_role_id == assignment.job_role_id)
+            )
+            ejr = ejr_q.scalars().first()
+
+        # Rate hierarchy: event override > employee override > role base
+        hourly_rate = role.hourly_rate if role else Decimal("0")
+        if ejr and ejr.hourly_rate_override:
+            hourly_rate = ejr.hourly_rate_override
+        else:
+            from app.models import EmployeeJobRole
+            emp_role_result = await db.execute(
+                select(EmployeeJobRole).where(
+                    EmployeeJobRole.user_id == assignment.user_id,
+                    EmployeeJobRole.company_id == company_id,
+                    EmployeeJobRole.job_role_id == assignment.job_role_id,
+                )
+            )
+            emp_role = emp_role_result.scalars().first()
+            if emp_role and emp_role.hourly_rate_override:
+                hourly_rate = emp_role.hourly_rate_override
+
+        shift = Shift(
+            assignment_id=assignment.id,
+            clock_in=clock_in_dt,
+            clock_in_lat=Decimal("0"),
+            clock_in_lng=Decimal("0"),
+            hourly_rate_snapshot=hourly_rate,
+            overtime_pay=Decimal("0.00"),
+            is_paused=False,
+            total_pause_minutes=Decimal("0"),
+        )
+        db.add(shift)
+        created += 1
+
+    await db.flush()
+
+    # Update event status to started if not already
+    if event.status in ("published", "filled", "filled_pending"):
+        event.status = "started"
+        await db.flush()
+
+    return {"created": created, "skipped": skipped, "message": f"Turno iniciado para {created} empleado(s)"}
