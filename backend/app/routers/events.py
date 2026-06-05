@@ -975,19 +975,24 @@ async def delete_event_job_role(
             detail=f"No se puede eliminar: hay {ejr.slots_filled} empleado(s) aprobado(s) en este rol. Quítalos primero."
         )
 
-    # Check for pending/invited assignments
+    # Check for pending/invited assignments specifically for THIS event_job_role
+    from sqlalchemy import or_
     pending_result = await db.execute(
         select(EventAssignment).where(
             EventAssignment.event_id == event_id,
-            EventAssignment.job_role_id == ejr.job_role_id,
             EventAssignment.status.in_(["pending", "invited"]),
+            or_(
+                EventAssignment.event_job_role_id == ejr_id,
+                # Fallback: if no event_job_role_id set, check by job_role_id (legacy)
+                (EventAssignment.event_job_role_id == None) & (EventAssignment.job_role_id == ejr.job_role_id),
+            ),
         )
     )
     pending = pending_result.scalars().all()
     if pending:
         raise HTTPException(
             status_code=400,
-            detail=f"No se puede eliminar: hay {len(pending)} empleado(s) pendientes/invitados en este rol. Quítalos primero."
+            detail=f"No se puede eliminar: hay {len(pending)} empleado(s) pendientes/invitados en este turno. Quítalos primero."
         )
 
     await db.delete(ejr)
