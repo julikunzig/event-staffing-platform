@@ -108,7 +108,30 @@ export default function JobRolesPage() {
         hourly_rates: Object.keys(hourly_rates).length > 0 ? hourly_rates : null,
       })
       const data = res.data as { assigned: number[]; skipped: number[] }
-      setAssignResult(`✅ ${data.assigned.length} asociado(s)${data.skipped.length > 0 ? `, ${data.skipped.length} omitido(s)` : ''}`)
+
+      // For skipped employees (already assigned) that have a rate change, update via employee-rate endpoint
+      let rateUpdated = 0
+      if (data.skipped.length > 0) {
+        for (const uid of data.skipped) {
+          const rateStr = customRates[uid]
+          if (rateStr && parseFloat(rateStr) > 0) {
+            try {
+              // Get the employee_job_role ID for this user+role
+              const empRoles = await api.get(`/users/${uid}/rates`)
+              const ejr = empRoles.data.find((r: any) => r.job_role_id === roleId)
+              if (ejr) {
+                await api.patch(`/job-roles/employee-rate/${ejr.id}`, { hourly_rate_override: parseFloat(rateStr) })
+                rateUpdated++
+              }
+            } catch {}
+          }
+        }
+      }
+
+      let msg = `✅ ${data.assigned.length} asociado(s)`
+      if (rateUpdated > 0) msg += `, ${rateUpdated} tarifa(s) actualizada(s)`
+      if (data.skipped.length > 0 && rateUpdated === 0) msg += `, ${data.skipped.length} ya asociado(s)`
+      setAssignResult(msg)
       setSelectedIds(new Set()); setCustomRates({})
     } catch (e: any) {
       setAssignResult(`❌ ${e.response?.data?.detail || t('common.error')}`)
