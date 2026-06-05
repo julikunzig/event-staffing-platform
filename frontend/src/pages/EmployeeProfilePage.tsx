@@ -274,6 +274,19 @@ export default function EmployeeProfilePage() {
                           <PlayCircle size={16} />{isLoading ? t('profile.clockInStarting') : t('profile.clockIn')}
                         </button>
                         {!clockAllowed && <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#9ca3af', textAlign: 'center' }}>⏰ {t('profile.clockInAvailable').replace('{minutes}', String(shiftStartMinutes))}</p>}
+                        {/* Withdraw button */}
+                        <button onClick={async () => {
+                          if (!confirm('¿Estás seguro de que deseas retirarte de este evento?')) return
+                          setActionLoading(a.id)
+                          try {
+                            await api.patch(`/assignments/${a.id}/withdraw`)
+                            await load()
+                          } catch (e: any) { setError(e.response?.data?.detail || 'Error al retirarse') }
+                          finally { setActionLoading(null) }
+                        }} disabled={isLoading}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: '12px', fontWeight: 600, cursor: 'pointer', marginTop: '6px', fontFamily: "'Poppins',sans-serif" }}>
+                          ✕ Retirarse del evento
+                        </button>
                       </div>
                     )}
                     {hasIn && !hasOut && (

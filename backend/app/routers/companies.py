@@ -299,6 +299,9 @@ class WeeklyConfigUpdate(BaseModel):
     admin_can_clock_in_all: bool | None = None
     days_to_reject_event: int | None = None
     geolocation_enabled: bool | None = None
+    overtime_multiplier: float | None = None
+    week_start_day: str | None = None
+    week_end_day: str | None = None
 
 
 @router.patch("/{company_id}/weekly-config", response_model=dict)
@@ -335,6 +338,12 @@ async def update_weekly_config(
             config.days_to_reject_event = body.days_to_reject_event
         if body.geolocation_enabled is not None:
             config.geolocation_enabled = body.geolocation_enabled
+        if body.overtime_multiplier is not None:
+            config.overtime_multiplier = Decimal(str(body.overtime_multiplier))
+        if body.week_start_day is not None:
+            config.week_start_day = body.week_start_day
+        if body.week_end_day is not None:
+            config.week_end_day = body.week_end_day
     else:
         config = WeeklyHoursConfig(
             company_id=company_id,
@@ -367,6 +376,9 @@ async def update_weekly_config(
         "admin_can_clock_in_all": config.admin_can_clock_in_all,
         "days_to_reject_event": config.days_to_reject_event,
         "geolocation_enabled": config.geolocation_enabled,
+        "overtime_multiplier": float(config.overtime_multiplier),
+        "week_start_day": config.week_start_day,
+        "week_end_day": config.week_end_day,
     }
 
 

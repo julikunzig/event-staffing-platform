@@ -291,6 +291,14 @@
     "minHours": "Minimum Hours per Shift",
     "minutesBefore": "Minutes Before to Start Shift",
     "horasEntreEventos": "Hours Between Events (Same Day)",
+    "daysToReject": "Days Allowed to Withdraw from Event",
+    "overtimeMultiplier": "Overtime Multiplier",
+    "weekStartDay": "Week Start Day",
+    "weekEndDay": "Week End Day",
+    "geolocationEnabled": "Geolocation enabled",
+    "geolocationDesc": "Validate employee location on clock-in",
+    "adminClockIn": "Admin bulk clock-in",
+    "adminClockInDesc": "Allow admin/coordinator to register clock-in for all event employees",
     "saveChanges": "Save Changes",
     "saving": "Saving...",
     "saved": "Changes saved successfully",
@@ -365,6 +373,15 @@
     "page": "Page",
     "of": "of",
     "showing": "Showing {from} to {to} of {total}"
+  },
+  "days": {
+    "monday": "Monday",
+    "tuesday": "Tuesday",
+    "wednesday": "Wednesday",
+    "thursday": "Thursday",
+    "friday": "Friday",
+    "saturday": "Saturday",
+    "sunday": "Sunday"
   },
   "filters": {
     "active": "Active",

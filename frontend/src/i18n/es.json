@@ -291,6 +291,14 @@
     "minHours": "Horas Mínimas por Turno",
     "minutesBefore": "Minutos Antes para Iniciar Turno",
     "horasEntreEventos": "Horas Entre Eventos (Mismo Día)",
+    "daysToReject": "Días para Retirarse del Evento",
+    "overtimeMultiplier": "Multiplicador Horas Extras",
+    "weekStartDay": "Día Inicio de Semana",
+    "weekEndDay": "Día Fin de Semana",
+    "geolocationEnabled": "Geolocalización activa",
+    "geolocationDesc": "Validar ubicación del empleado al iniciar turno",
+    "adminClockIn": "Admin puede registrar hora de inicio masiva",
+    "adminClockInDesc": "Permite al admin/coordinador registrar clock-in para todos los empleados de un evento",
     "saveChanges": "Guardar Cambios",
     "saving": "Guardando...",
     "saved": "Cambios guardados correctamente",
@@ -365,6 +373,15 @@
     "page": "Página",
     "of": "de",
     "showing": "Mostrando {from} a {to} de {total}"
+  },
+  "days": {
+    "monday": "Lunes",
+    "tuesday": "Martes",
+    "wednesday": "Miércoles",
+    "thursday": "Jueves",
+    "friday": "Viernes",
+    "saturday": "Sábado",
+    "sunday": "Domingo"
   },
   "forms": {
     "selectRole": "Seleccionar rol...",

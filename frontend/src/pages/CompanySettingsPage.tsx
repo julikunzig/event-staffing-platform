@@ -19,7 +19,7 @@ const labelStyle: React.CSSProperties = {
 }
 
 interface Company { id: number; name: string; email: string | null; phone: string | null }
-interface WeeklyConfig { id: number; company_id: number; weekly_hours_limit: number; min_shift_hours: number; shift_start_minutes: number; horas_entre_eventos: number }
+interface WeeklyConfig { id: number; company_id: number; weekly_hours_limit: number; min_shift_hours: number; shift_start_minutes: number; horas_entre_eventos: number; admin_can_clock_in_all: boolean; days_to_reject_event: number; geolocation_enabled: boolean; overtime_multiplier: number; week_start_day: string; week_end_day: string }
 
 export default function CompanySettingsPage() {
   const { user } = useAuth()
@@ -37,6 +37,12 @@ export default function CompanySettingsPage() {
   const [minHours, setMinHours]         = useState('0')
   const [minutesBefore, setMinutesBefore] = useState('15')
   const [horasEntreEventos, setHorasEntreEventos] = useState('0')
+  const [adminCanClockIn, setAdminCanClockIn] = useState(false)
+  const [daysToReject, setDaysToReject] = useState('0')
+  const [geoEnabled, setGeoEnabled] = useState(true)
+  const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.50')
+  const [weekStartDay, setWeekStartDay] = useState('monday')
+  const [weekEndDay, setWeekEndDay] = useState('sunday')
 
   useEffect(() => {
     const load = async () => {
@@ -54,6 +60,12 @@ export default function CompanySettingsPage() {
           setMinHours(String(configRes.data.min_shift_hours))
           setMinutesBefore(String(configRes.data.shift_start_minutes))
           setHorasEntreEventos(String(configRes.data.horas_entre_eventos || 0))
+          setAdminCanClockIn(configRes.data.admin_can_clock_in_all || false)
+          setDaysToReject(String(configRes.data.days_to_reject_event || 0))
+          setGeoEnabled(configRes.data.geolocation_enabled !== false)
+          setOvertimeMultiplier(String(configRes.data.overtime_multiplier || 1.5))
+          setWeekStartDay(configRes.data.week_start_day || 'monday')
+          setWeekEndDay(configRes.data.week_end_day || 'sunday')
         }
       } catch (e: any) { setError(e.response?.data?.detail || t('companySettings.error')) }
       finally { setLoading(false) }
@@ -76,6 +88,9 @@ export default function CompanySettingsPage() {
       await api.patch(`/companies/${config!.company_id}/weekly-config`, {
         weekly_hours_limit: parseInt(weeklyHours), min_shift_hours: parseInt(minHours),
         shift_start_minutes: parseInt(minutesBefore), horas_entre_eventos: parseInt(horasEntreEventos),
+        admin_can_clock_in_all: adminCanClockIn, days_to_reject_event: parseInt(daysToReject),
+        geolocation_enabled: geoEnabled, overtime_multiplier: parseFloat(overtimeMultiplier),
+        week_start_day: weekStartDay, week_end_day: weekEndDay,
       })
       setSuccess(t('companySettings.saved'))
     } catch (e: any) { setError(e.response?.data?.detail || t('companySettings.error')) }
@@ -142,12 +157,48 @@ export default function CompanySettingsPage() {
               { label: t('companySettings.minHours'), val: minHours, set: setMinHours },
               { label: t('companySettings.minutesBefore'), val: minutesBefore, set: setMinutesBefore },
               { label: t('companySettings.horasEntreEventos'), val: horasEntreEventos, set: setHorasEntreEventos },
+              { label: t('companySettings.daysToReject') || 'Días para retirarse del evento', val: daysToReject, set: setDaysToReject },
+              { label: t('companySettings.overtimeMultiplier') || 'Multiplicador horas extras', val: overtimeMultiplier, set: setOvertimeMultiplier },
             ].map(({ label, val, set }) => (
               <div key={label}>
                 <label style={labelStyle}>{label} *</label>
-                <input type="number" min="0" value={val} onChange={e => set(e.target.value)} required style={fieldStyle} />
+                <input type="number" min="0" step="0.01" value={val} onChange={e => set(e.target.value)} required style={fieldStyle} />
               </div>
             ))}
+            {/* Week start/end day selectors */}
+            <div>
+              <label style={labelStyle}>{t('companySettings.weekStartDay') || 'Día inicio de semana'} *</label>
+              <select value={weekStartDay} onChange={e => setWeekStartDay(e.target.value)} style={fieldStyle}>
+                {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(d => (
+                  <option key={d} value={d}>{d === 'monday' ? (t('days.monday') || 'Lunes') : d === 'tuesday' ? (t('days.tuesday') || 'Martes') : d === 'wednesday' ? (t('days.wednesday') || 'Miércoles') : d === 'thursday' ? (t('days.thursday') || 'Jueves') : d === 'friday' ? (t('days.friday') || 'Viernes') : d === 'saturday' ? (t('days.saturday') || 'Sábado') : (t('days.sunday') || 'Domingo')}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>{t('companySettings.weekEndDay') || 'Día fin de semana'} *</label>
+              <select value={weekEndDay} onChange={e => setWeekEndDay(e.target.value)} style={fieldStyle}>
+                {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(d => (
+                  <option key={d} value={d}>{d === 'monday' ? (t('days.monday') || 'Lunes') : d === 'tuesday' ? (t('days.tuesday') || 'Martes') : d === 'wednesday' ? (t('days.wednesday') || 'Miércoles') : d === 'thursday' ? (t('days.thursday') || 'Jueves') : d === 'friday' ? (t('days.friday') || 'Viernes') : d === 'saturday' ? (t('days.saturday') || 'Sábado') : (t('days.sunday') || 'Domingo')}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {/* Toggle params */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+              <input type="checkbox" checked={geoEnabled} onChange={e => setGeoEnabled(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: GREEN }} />
+              <div>
+                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.geolocationEnabled') || 'Geolocation enabled'}</p>
+                <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.geolocationDesc') || 'Validate employee location on clock-in'}</p>
+              </div>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+              <input type="checkbox" checked={adminCanClockIn} onChange={e => setAdminCanClockIn(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: GREEN }} />
+              <div>
+                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.adminClockIn') || 'Admin bulk clock-in'}</p>
+                <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.adminClockInDesc') || 'Allow admin/coordinator to register clock-in for all event employees'}</p>
+              </div>
+            </label>
           </div>
           <button type="submit" disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '9px', border: 'none', background: `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: "'Poppins',sans-serif" }}>
             <Save size={14} />{saving ? t('companySettings.saving') : t('companySettings.saveChanges')}

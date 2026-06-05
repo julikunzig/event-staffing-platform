@@ -24,6 +24,8 @@ class WeeklyHoursConfig(Base):
     days_to_reject_event: Mapped[int] = mapped_column(default=0, nullable=False)
     # ¿Validar geolocalización al hacer clock-in?
     geolocation_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Multiplicador de horas extras (ej: 1.5 = 50% más, 1.2 = 20% más)
+    overtime_multiplier: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("1.50"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
