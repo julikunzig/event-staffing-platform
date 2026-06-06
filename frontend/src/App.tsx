@@ -19,6 +19,7 @@ import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import AccountPage from '@/pages/AccountPage'
 import EventEditPage from '@/pages/EventEditPage'
 import NewsPage from '@/pages/NewsPage'
+import EventHoursPage from '@/pages/EventHoursPage'
 
 const queryClient = new QueryClient()
 
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute roles={['admin', 'super_admin', 'coordinator', 'employee']}><ReportsPage /></ProtectedRoute>} />
             <Route path="/news" element={<ProtectedRoute><NewsPage /></ProtectedRoute>} />
+            <Route path="/event-hours" element={<ProtectedRoute roles={['admin', 'super_admin', 'coordinator']}><EventHoursPage /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>

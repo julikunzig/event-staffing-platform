@@ -582,3 +582,149 @@ async def send_event_published_email_personalized(
         html_en,
         html_es,
     )
+
+
+async def send_employee_withdrew_email(
+    admin_email: str,
+    employee_name: str,
+    event_name: str,
+    role_name: str,
+    event_date: str,
+) -> bool:
+    """Send notification to admin when employee withdraws from confirmed event"""
+
+    html_en = f"""
+    <h2>⚠️ Employee Withdrew: {event_name}</h2>
+    <p><strong>{employee_name}</strong> has <strong>withdrawn</strong> from the event where they were confirmed as <strong>{role_name}</strong>.</p>
+    
+    <h3>Event Details:</h3>
+    <ul>
+        <li><strong>Event:</strong> {event_name}</li>
+        <li><strong>Date:</strong> {event_date}</li>
+        <li><strong>Position:</strong> {role_name}</li>
+        <li><strong>Employee:</strong> {employee_name}</li>
+    </ul>
+    
+    <p>You may need to find a replacement for this position.</p>
+    """
+
+    html_es = f"""
+    <h2>⚠️ Empleado Se Retiró: {event_name}</h2>
+    <p><strong>{employee_name}</strong> se ha <strong>retirado</strong> del evento donde estaba confirmado como <strong>{role_name}</strong>.</p>
+    
+    <h3>Detalles del Evento:</h3>
+    <ul>
+        <li><strong>Evento:</strong> {event_name}</li>
+        <li><strong>Fecha:</strong> {event_date}</li>
+        <li><strong>Posición:</strong> {role_name}</li>
+        <li><strong>Empleado:</strong> {employee_name}</li>
+    </ul>
+    
+    <p>Es posible que necesites encontrar un reemplazo para esta posición.</p>
+    """
+
+    return await send_email(
+        admin_email,
+        f"Employee Withdrew: {event_name}",
+        f"Empleado Se Retiró: {event_name}",
+        html_en,
+        html_es,
+    )
+
+
+async def send_welcome_email(
+    to_email: str,
+    user_name: str,
+    username: str,
+    password: str,
+    company_name: str,
+    login_url: str,
+) -> bool:
+    """Send welcome email to new user with login credentials."""
+
+    html_en = f"""
+    <h2>Welcome to EventsControl, {user_name}!</h2>
+    <p>Your account has been created by <strong>{company_name}</strong>. Below are your login credentials:</p>
+    
+    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin: 16px 0;">
+        <p style="margin: 0 0 8px;"><strong>Username/Email:</strong> {username}</p>
+        <p style="margin: 0 0 8px;"><strong>Temporary Password:</strong> {password}</p>
+        <p style="margin: 0;"><strong>Company:</strong> {company_name}</p>
+    </div>
+    
+    <p>⚠️ <strong>Important:</strong> You will be required to change your password on your first login.</p>
+    
+    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Login to EventsControl</a></p>
+    
+    <p style="font-size: 12px; color: #6b7280;">If the button doesn't work, copy and paste this link: {login_url}</p>
+    """
+
+    html_es = f"""
+    <h2>¡Bienvenido a EventsControl, {user_name}!</h2>
+    <p>Tu cuenta ha sido creada por <strong>{company_name}</strong>. A continuación tus credenciales de acceso:</p>
+    
+    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin: 16px 0;">
+        <p style="margin: 0 0 8px;"><strong>Usuario/Email:</strong> {username}</p>
+        <p style="margin: 0 0 8px;"><strong>Contraseña temporal:</strong> {password}</p>
+        <p style="margin: 0;"><strong>Empresa:</strong> {company_name}</p>
+    </div>
+    
+    <p>⚠️ <strong>Importante:</strong> Se te pedirá cambiar tu contraseña la primera vez que inicies sesión.</p>
+    
+    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Ingresar a EventsControl</a></p>
+    
+    <p style="font-size: 12px; color: #6b7280;">Si el botón no funciona, copia y pega este enlace: {login_url}</p>
+    """
+
+    return await send_email(
+        to_email,
+        f"Welcome to EventsControl - Your Account",
+        f"Bienvenido a EventsControl - Tu Cuenta",
+        html_en,
+        html_es,
+    )
+
+
+async def send_existing_user_new_company_email(
+    to_email: str,
+    user_name: str,
+    company_name: str,
+    login_url: str,
+) -> bool:
+    """Send email to existing user when associated to a new company."""
+
+    html_en = f"""
+    <h2>You've Been Added to a New Company, {user_name}!</h2>
+    <p>You have been associated with <strong>{company_name}</strong> on EventsControl.</p>
+    
+    <p>You can log in using your existing credentials and select <strong>{company_name}</strong> as your company during login.</p>
+    
+    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px; margin: 16px 0;">
+        <p style="margin: 0 0 8px;"><strong>New Company:</strong> {company_name}</p>
+        <p style="margin: 0;">Use your current email/username and password to log in.</p>
+    </div>
+    
+    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Login to EventsControl</a></p>
+    """
+
+    html_es = f"""
+    <h2>¡Has Sido Agregado a una Nueva Empresa, {user_name}!</h2>
+    <p>Has sido asociado a <strong>{company_name}</strong> en EventsControl.</p>
+    
+    <p>Puedes iniciar sesión con tus credenciales actuales y seleccionar <strong>{company_name}</strong> como tu empresa durante el login.</p>
+    
+    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px; margin: 16px 0;">
+        <p style="margin: 0 0 8px;"><strong>Nueva Empresa:</strong> {company_name}</p>
+        <p style="margin: 0;">Usa tu email/usuario y contraseña actuales para ingresar.</p>
+    </div>
+    
+    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Ingresar a EventsControl</a></p>
+    """
+
+    return await send_email(
+        to_email,
+        f"You've been added to {company_name}",
+        f"Has sido agregado a {company_name}",
+        html_en,
+        html_es,
+    )

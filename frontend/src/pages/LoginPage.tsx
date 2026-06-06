@@ -223,8 +223,8 @@ export default function LoginPage() {
               {step==='email' && (
                 <form onSubmit={handleEmailSubmit} style={{ display:'flex', flexDirection:'column', gap:'1.1rem' }}>
                   <div>
-                    <label style={{ display:'block', fontSize:'11px', fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'#9ca3af', marginBottom:'7px' }}>{t('auth.email')}</label>
-                    <Input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="tu@email.com"
+                    <label style={{ display:'block', fontSize:'11px', fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', color:'#9ca3af', marginBottom:'7px' }}>{t('auth.emailOrUsername')}</label>
+                    <Input type="text" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="email o usuario"
                       style={{ height:'46px', background:'#f9fafb', border:'1.5px solid #e5e7eb', color:'#111827', borderRadius:'0.75rem', fontSize:'14px' }}/>
                   </div>
                   {error && <div style={{ display:'flex', alignItems:'center', gap:'8px', padding:'10px 13px', borderRadius:'10px', background:'#fef2f2', border:'1px solid #fecaca', color:'#dc2626', fontSize:'13px' }}>⚠ {error}</div>}

@@ -204,6 +204,12 @@ async def get_current_company_weekly_config(current_user: AuthDep, db: AsyncSess
             "min_shift_hours": config.min_shift_hours,
             "shift_start_minutes": company.shift_start_minutes_before,
             "horas_entre_eventos": config.horas_entre_eventos,
+            "admin_can_clock_in_all": config.admin_can_clock_in_all,
+            "days_to_reject_event": config.days_to_reject_event,
+            "geolocation_enabled": config.geolocation_enabled,
+            "overtime_multiplier": float(config.overtime_multiplier),
+            "week_start_day": config.week_start_day,
+            "week_end_day": config.week_end_day,
         }
     else:
         # Retornar defaults si no existe
@@ -214,6 +220,12 @@ async def get_current_company_weekly_config(current_user: AuthDep, db: AsyncSess
             "min_shift_hours": Decimal("0.00"),
             "shift_start_minutes": company.shift_start_minutes_before,
             "horas_entre_eventos": 0,
+            "admin_can_clock_in_all": False,
+            "days_to_reject_event": 0,
+            "geolocation_enabled": True,
+            "overtime_multiplier": 1.5,
+            "week_start_day": "monday",
+            "week_end_day": "sunday",
         }
 
 
@@ -241,6 +253,12 @@ async def get_company_weekly_config(company_id: int, current_user: AdminDep, db:
             "min_shift_hours": config.min_shift_hours,
             "shift_start_minutes": company.shift_start_minutes_before,
             "horas_entre_eventos": config.horas_entre_eventos,
+            "admin_can_clock_in_all": config.admin_can_clock_in_all,
+            "days_to_reject_event": config.days_to_reject_event,
+            "geolocation_enabled": config.geolocation_enabled,
+            "overtime_multiplier": float(config.overtime_multiplier),
+            "week_start_day": config.week_start_day,
+            "week_end_day": config.week_end_day,
         }
     else:
         # Retornar defaults si no existe
@@ -251,6 +269,12 @@ async def get_company_weekly_config(company_id: int, current_user: AdminDep, db:
             "min_shift_hours": Decimal("0.00"),
             "shift_start_minutes": company.shift_start_minutes_before,
             "horas_entre_eventos": 0,
+            "admin_can_clock_in_all": False,
+            "days_to_reject_event": 0,
+            "geolocation_enabled": True,
+            "overtime_multiplier": 1.5,
+            "week_start_day": "monday",
+            "week_end_day": "sunday",
         }
 
 

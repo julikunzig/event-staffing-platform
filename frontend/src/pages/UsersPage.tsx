@@ -54,6 +54,7 @@ export default function UsersPage() {
   const [profileCode, setProfileCode]   = useState('employee')
   const [newName, setNewName]           = useState('')
   const [newEmail, setNewEmail]         = useState('')
+  const [newUsername, setNewUsername]    = useState('')
   const [newPassword, setNewPassword]   = useState('')
   const [newPhone, setNewPhone]         = useState('')
   const [newJobRoles, setNewJobRoles]   = useState<Set<number>>(new Set())
@@ -110,7 +111,7 @@ export default function UsersPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setActionLoading(true)
     try {
-      const res = await api.post<UserResult>('/users', { name: newName, email: newEmail, password: newPassword, phone: newPhone || null })
+      const res = await api.post<UserResult>('/users', { name: newName, email: newEmail, password: newPassword, phone: newPhone || null, username: newUsername || null })
       await api.post(`/users/companies/${companyId}/members`, { user_id: res.data.id, profile_code: profileCode })
       // Assign selected job roles with optional custom rates
       for (const roleId of newJobRoles) {
@@ -127,7 +128,7 @@ export default function UsersPage() {
         } catch {}
       }
       setSuccess(t('forms.userAssociated')); setShowCreate(false); setSearchResult(undefined); setSearchEmail('')
-      setNewName(''); setNewEmail(''); setNewPassword(''); setNewPhone(''); setNewJobRoles(new Set()); setNewJobRates({}); loadMembers()
+      setNewName(''); setNewEmail(''); setNewUsername(''); setNewPassword(''); setNewPhone(''); setNewJobRoles(new Set()); setNewJobRates({}); loadMembers()
     } catch (e: any) { setError(e.response?.data?.detail || t('common.error')) } finally { setActionLoading(false) }
   }
 
@@ -273,6 +274,7 @@ export default function UsersPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                 <div><p style={sectionTitle}>{t('forms.fullName')} *</p><input value={newName} onChange={e => setNewName(e.target.value)} required style={fieldStyle} /></div>
                 <div><p style={sectionTitle}>{t('auth.email')} *</p><input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required style={fieldStyle} /></div>
+                <div><p style={sectionTitle}>{t('forms.username')}</p><input value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="usuario123" style={fieldStyle} /></div>
                 <div><p style={sectionTitle}>{t('auth.password')} *</p><input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required style={fieldStyle} /></div>
                 <div><p style={sectionTitle}>{t('forms.phone')}</p><input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="+1234567890" style={fieldStyle} /></div>
               </div>

@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from pydantic import BaseModel, field_validator
 from decimal import Decimal
 from typing import Annotated
 from datetime import date, time, datetime
 from app.core.database import get_db
 from app.core.auth import require_role, get_current_user
-from app.models import Event, EventJobRole, JobRole, EventAssignment, User
+from app.models import Event, EventJobRole, JobRole, EventAssignment, User, EmployeeJobRole
 
 router = APIRouter(prefix="/events", tags=["events"])
 AdminDep = Annotated[dict, Depends(require_role("super_admin", "admin"))]
@@ -253,53 +253,39 @@ async def list_events(
         if event_status:
             query = query.where(Event.status == event_status)
     else:
-        # Empleados NO ven eventos en estado 'created' o 'cancelled'
-        query = query.where(Event.status.notin_(["created", "cancelled"]))
-        if event_status:
-            query = query.where(Event.status == event_status)
+        # Empleados: filtro especial por rol y asignación
 
-        from sqlalchemy import or_, and_, func as sqlfunc
-
-        # Subquery: eventos donde el empleado tiene asignación activa
-        has_assignment = select(EventAssignment.event_id).where(
+        # Subquery: IDs de eventos donde el empleado tiene asignación activa
+        assigned_event_ids = select(EventAssignment.event_id).where(
             EventAssignment.user_id == user_id,
             EventAssignment.status.notin_(["removed", "rejected"]),
-        )
+        ).scalar_subquery()
 
-        # Subquery: contar invitaciones activas por evento
-        invited_count_sq = (
-            select(
-                EventAssignment.event_id,
-                sqlfunc.count(EventAssignment.id).label("invited_count")
-            )
-            .where(EventAssignment.status.in_(["invited", "pending", "approved"]))
-            .group_by(EventAssignment.event_id)
-            .subquery()
-        )
+        # Subquery: IDs de roles laborales del empleado en esta empresa
+        employee_role_ids = select(EmployeeJobRole.job_role_id).where(
+            EmployeeJobRole.user_id == user_id,
+            EmployeeJobRole.company_id == company_id,
+        ).scalar_subquery()
 
-        # Subquery: total de cupos requeridos por evento
-        required_count_sq = (
-            select(
-                EventJobRole.event_id,
-                sqlfunc.sum(EventJobRole.slots_required).label("total_required")
-            )
-            .group_by(EventJobRole.event_id)
-            .subquery()
-        )
+        # Subquery: IDs de eventos publicados que requieren roles del empleado
+        published_with_matching_roles = select(EventJobRole.event_id).where(
+            EventJobRole.job_role_id.in_(employee_role_ids),
+        ).scalar_subquery()
 
-        query = query.outerjoin(
-            invited_count_sq, invited_count_sq.c.event_id == Event.id
-        ).outerjoin(
-            required_count_sq, required_count_sq.c.event_id == Event.id
-        ).where(
+        # Empleado ve:
+        # 1. Eventos "published" que requieran su(s) rol(es)
+        # 2. Eventos "filled_pending", "filled", "started", "finished" donde esté asignado
+        query = query.where(
             or_(
-                Event.id.in_(has_assignment),
-                or_(
-                    invited_count_sq.c.invited_count == None,
-                    invited_count_sq.c.invited_count < required_count_sq.c.total_required,
-                )
+                # Published events matching employee's roles
+                (Event.status == "published") & (Event.id.in_(published_with_matching_roles)),
+                # Non-published events where employee is assigned
+                (Event.status.in_(["filled_pending", "filled", "started", "finished"])) & (Event.id.in_(assigned_event_ids)),
             )
         )
+
+        if event_status:
+            query = query.where(Event.status == event_status)
 
     result = await db.execute(query.order_by(Event.event_date.desc()))
     return result.scalars().all()

@@ -478,6 +478,58 @@ async def clock_out(
     return shift
 
 
+class ShiftClockOutUpdate(BaseModel):
+    clock_out: datetime
+
+
+@router.patch("/{shift_id}/clock-out", response_model=ShiftOut)
+async def update_shift_clock_out(
+    shift_id: int,
+    body: ShiftClockOutUpdate,
+    current_user: AdminCoordDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin/coord modify clock-out time for a shift in started/finished events."""
+    company_id = current_user["company_id"]
+    modifier_id = int(current_user["sub"])
+
+    shift = await db.get(Shift, shift_id)
+    if not shift:
+        raise HTTPException(status_code=404, detail="Turno no encontrado")
+
+    assignment = await db.get(EventAssignment, shift.assignment_id)
+    if not assignment or assignment.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Sin acceso a este turno")
+
+    event = await db.get(Event, assignment.event_id)
+    if not event or event.status not in ("started", "finished"):
+        raise HTTPException(status_code=400, detail="Solo se puede modificar la hora de salida cuando el evento está iniciado o finalizado")
+
+    new_clock_out = body.clock_out.replace(tzinfo=None)
+    if shift.clock_in and new_clock_out <= shift.clock_in.replace(tzinfo=None):
+        raise HTTPException(status_code=400, detail="La hora de salida debe ser posterior a la hora de entrada")
+
+    shift.clock_out = new_clock_out
+    shift.modified_by = modifier_id
+
+    # Recalculate pay
+    if shift.clock_in:
+        gross_hours = _duration_hours(shift.clock_in, shift.clock_out)
+        pause_hours = Decimal(str(round(float(shift.total_pause_minutes or 0) / 60, 4)))
+        hours_worked = max(Decimal("0"), gross_hours - pause_hours)
+        limit, hours_this_week, min_shift = await _get_weekly_hours(
+            assignment.user_id, company_id, event.event_date, db
+        )
+        pay = calculate_shift_pay(hours_worked, shift.hourly_rate_snapshot, limit, hours_this_week, min_shift)
+        shift.hours_worked = pay.hours_billed
+        shift.regular_pay = pay.regular_pay
+        shift.overtime_pay = pay.overtime_pay
+        shift.total_pay = pay.total_pay
+
+    await db.flush()
+    return shift
+
+
 @router.get("/{assignment_id}/my-shift", response_model=ShiftOut | None)
 async def get_my_shift(
     assignment_id: int,
@@ -558,8 +610,8 @@ async def update_shift_clock_in(
         raise HTTPException(status_code=403, detail="Sin acceso a este turno")
 
     event = await db.get(Event, assignment.event_id)
-    if not event or event.status != "finished":
-        raise HTTPException(status_code=400, detail="Solo se puede modificar la hora de entrada cuando el evento está finalizado")
+    if not event or event.status not in ("started", "finished"):
+        raise HTTPException(status_code=400, detail="Solo se puede modificar la hora de entrada cuando el evento está iniciado o finalizado")
 
     new_clock_in = body.clock_in.replace(tzinfo=None)
     if shift.clock_out and new_clock_in >= shift.clock_out.replace(tzinfo=None):

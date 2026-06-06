@@ -241,6 +241,23 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
     } catch (e: any) { setInviteResult(`❌ ${parseErrorMessage(e.response?.data?.detail || 'Error')}`) } finally { setActionLoading(false) }
   }
 
+  const handleDirectAssign = async () => {
+    if (selected.size === 0) return; setActionLoading(true); setInviteResult('')
+    try {
+      let assignedCount = 0
+      for (const [userId, erId] of selected.entries()) {
+        const er = eventRoles.find(r => r.id === erId)
+        await api.post(`/assignments/events/${eventId}/assign`, {
+          user_id: userId,
+          job_role_id: er ? er.job_role_id : erId,
+          event_job_role_id: erId,
+        })
+        assignedCount++
+      }
+      setInviteResult(`✅ ${assignedCount} empleado(s) asignado(s) directamente`); setSelected(new Map()); await loadData()
+    } catch (e: any) { setInviteResult(`❌ ${parseErrorMessage(e.response?.data?.detail || 'Error')}`) } finally { setActionLoading(false) }
+  }
+
   const handlePublish = async () => { setActionLoading(true); setError(''); try { const r = await api.post<Event>(`/events/${eventId}/publish`); setEvent(r.data); onStatusChange?.() } catch (e: any) { setError(e.response?.data?.detail || 'Error') } finally { setActionLoading(false) } }
   const handleCancel  = async () => {
     setConfirmDialog({
@@ -435,6 +452,8 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                           const pending = er.slots_pending || 0
                           const total = er.slots_filled + pending
                           const allApproved = er.slots_filled >= er.slots_required
+                          // Only show rate if admin/coordinator or if this is the employee's own role
+                          const showRate = isAdminOrCoord(user) || (myAssignment && myAssignment.job_role_id === er.job_role_id)
                           return (
                             <div key={er.id}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
@@ -444,7 +463,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                                 </span>
                               </div>
                               <ProgressBar value={er.slots_filled} max={er.slots_required} pending={pending} />
-                              {role && <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#9ca3af' }}>{er.start_time ? `🕐 ${er.start_time.substring(0, 5)} · ` : ''}{er.hourly_rate_override ? <><s>${parseFloat(role.hourly_rate).toFixed(2)}</s> <span style={{ color: '#3b82f6', fontWeight: 600 }}>${parseFloat(er.hourly_rate_override).toFixed(2)}/h</span></> : `$${parseFloat(role.hourly_rate).toFixed(2)}/h`}</p>}
+                              {role && <p style={{ margin: '3px 0 0', fontSize: '11px', color: '#9ca3af' }}>{er.start_time ? `🕐 ${er.start_time.substring(0, 5)}` : ''}{showRate ? (er.start_time ? ' · ' : '') + (er.hourly_rate_override ? `$${parseFloat(er.hourly_rate_override).toFixed(2)}/h` : `$${parseFloat(role.hourly_rate).toFixed(2)}/h`) : ''}</p>}
                             </div>
                           )
                         })}
@@ -541,15 +560,17 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                         {empLoading ? <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center' }}>{t('common.loading')}</p> : filteredEmployees.length === 0 ? <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center' }}>{t('events.noEmployeesWithRoles')}</p> : (
                           <div style={{ maxHeight: '240px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fff' }}>
                             {filteredEmployees.map(emp => {
-                              const curRole = selected.get(emp.id) || emp.roles[0]?.id || 0
                               // Find matching eventRoles for this employee's roles
                               const matchingEventRoles = eventRoles.filter(er => emp.roles.some(r => r.id === er.job_role_id))
-                              const selectedEr = matchingEventRoles.find(er => er.job_role_id === curRole) || matchingEventRoles[0]
-                              const full = selectedEr ? (selectedEr.slots_filled + (selectedEr.slots_pending || 0)) >= selectedEr.slots_required : false
+                              // Check if ANY matching role has available slots
+                              const anyAvailable = matchingEventRoles.some(er => (er.slots_filled + (er.slots_pending || 0)) < er.slots_required)
+                              const full = !anyAvailable
+                              // Find first available event role for default selection
+                              const firstAvailableEr = matchingEventRoles.find(er => (er.slots_filled + (er.slots_pending || 0)) < er.slots_required) || matchingEventRoles[0]
                               return (
                                 <div key={emp.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderBottom: '1px solid #f3f4f6', opacity: full && !selected.has(emp.id) ? 0.5 : 1 }}>
                                   <input type="checkbox" checked={selected.has(emp.id)} disabled={full && !selected.has(emp.id)}
-                                    onChange={() => toggleEmployee(emp.id, matchingEventRoles[0]?.id || emp.roles[0]?.id || 0)} style={{ marginTop: '2px', accentColor: GREEN }} />
+                                    onChange={() => toggleEmployee(emp.id, firstAvailableEr?.id || matchingEventRoles[0]?.id || 0)} style={{ marginTop: '2px', accentColor: GREEN }} />
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{emp.name}</p>
                                     <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{emp.email}{emp.phone ? ` · ${emp.phone}` : ''}</p>
@@ -578,12 +599,18 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                             })}
                           </div>
                         )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap', gap: '8px' }}>
                           <span style={{ fontSize: '12px', color: '#6b7280' }}>{selected.size} seleccionado(s)</span>
-                          <button onClick={handleBulkInvite} disabled={actionLoading || selected.size === 0}
-                            style={{ padding: '7px 16px', borderRadius: '8px', border: 'none', background: selected.size === 0 ? '#e5e7eb' : `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`, color: selected.size === 0 ? '#9ca3af' : '#fff', fontSize: '12px', fontWeight: 700, cursor: selected.size === 0 ? 'not-allowed' : 'pointer' }}>
-                            {actionLoading ? t('events.inviting') : `${t('events.sendInvitations')} (${selected.size})`}
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <button onClick={handleBulkInvite} disabled={actionLoading || selected.size === 0}
+                              style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid #e5e7eb', background: selected.size === 0 ? '#f3f4f6' : '#fff', color: selected.size === 0 ? '#9ca3af' : '#374151', fontSize: '12px', fontWeight: 600, cursor: selected.size === 0 ? 'not-allowed' : 'pointer' }}>
+                              {actionLoading ? t('events.inviting') : `📩 ${t('events.sendInvitations')}`}
+                            </button>
+                            <button onClick={handleDirectAssign} disabled={actionLoading || selected.size === 0}
+                              style={{ padding: '7px 14px', borderRadius: '8px', border: 'none', background: selected.size === 0 ? '#e5e7eb' : `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`, color: selected.size === 0 ? '#9ca3af' : '#fff', fontSize: '12px', fontWeight: 700, cursor: selected.size === 0 ? 'not-allowed' : 'pointer' }}>
+                              {actionLoading ? '...' : `✓ Asignar Directo (${selected.size})`}
+                            </button>
+                          </div>
                         </div>
                         {inviteResult && <p style={{ margin: '8px 0 0', fontSize: '13px', color: inviteResult.startsWith('✅') ? '#15803d' : '#dc2626' }}>{inviteResult}</p>}
                       </div>

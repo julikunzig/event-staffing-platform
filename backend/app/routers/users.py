@@ -29,6 +29,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     phone: str | None = None
+    username: str | None = None
     preferred_lang: str = "es"
 
 
@@ -88,7 +89,7 @@ async def search_user(
 @router.post("", response_model=UserSearchResult, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
-    _: AdminDep,
+    current_user: AdminDep,
     db: AsyncSession = Depends(get_db),
 ):
     # Email siempre en minúsculas
@@ -97,18 +98,48 @@ async def create_user(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email ya registrado")
 
+    # Validate username uniqueness if provided
+    username_lower = None
+    if body.username and body.username.strip():
+        username_lower = body.username.strip().lower()
+        existing_user = await db.execute(select(User).where(User.username == username_lower))
+        if existing_user.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Username ya registrado")
+
     password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
     user = User(
         name=body.name.strip().upper() if body.name else body.name,
         email=email_lower,
+        username=username_lower,
         password_hash=password_hash,
         phone=body.phone.strip().upper() if body.phone else body.phone,
         preferred_lang=body.preferred_lang,
         is_active=True,
+        must_change_password=True,
     )
     db.add(user)
     await db.flush()
     await db.refresh(user)
+
+    # Send welcome email with credentials
+    try:
+        from app.models import Company
+        company_id = current_user.get("company_id")
+        company = await db.get(Company, company_id) if company_id else None
+        company_name = company.name if company else "EventsControl"
+
+        from app.services.email_service import send_welcome_email
+        await send_welcome_email(
+            to_email=email_lower,
+            user_name=user.name,
+            username=username_lower or email_lower,
+            password=body.password,
+            company_name=company_name,
+            login_url="https://event-staffing-platform.vercel.app/login",
+        )
+    except Exception as e:
+        print(f"[CreateUser] Error sending welcome email: {e}")
+
     return user
 
 
@@ -154,6 +185,24 @@ async def add_member(
     db.add(membership)
     await db.flush()
     await db.refresh(membership)
+
+    # Send welcome email if user already existed (not just created - i.e., not must_change_password)
+    # For existing users being associated to a new company
+    if not user.must_change_password:
+        try:
+            from app.models import Company
+            company = await db.get(Company, company_id)
+            company_name = company.name if company else "EventsControl"
+            from app.services.email_service import send_existing_user_new_company_email
+            await send_existing_user_new_company_email(
+                to_email=user.email,
+                user_name=user.name,
+                company_name=company_name,
+                login_url="https://event-staffing-platform.vercel.app/login",
+            )
+        except Exception as e:
+            print(f"[AddMember] Error sending new company email: {e}")
+
     return MemberOut(
         id=membership.id,
         user_id=membership.user_id,

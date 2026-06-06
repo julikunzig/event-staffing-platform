@@ -27,24 +27,34 @@ async def check_and_update_event_status(event_id: int, db: AsyncSession) -> None
     if total_required == 0:
         return
 
-    # Contar aprobados y pendientes por rol
-    all_slots_covered = True   # todos los roles tienen suficientes (approved + pending)
-    all_slots_approved = True  # todos los roles tienen suficientes solo con approved
-
+    # Agrupar por job_role_id para contar correctamente
+    # (un rol puede tener múltiples shifts/event_job_roles)
+    from collections import defaultdict
+    role_groups: dict[int, list] = defaultdict(list)
     for role in roles:
+        role_groups[role.job_role_id].append(role)
+
+    all_slots_covered = True
+    all_slots_approved = True
+
+    for job_role_id, role_list in role_groups.items():
+        total_required_for_role = sum(r.slots_required for r in role_list)
+
+        # Count ALL approved assignments for this job_role_id in this event
         approved_result = await db.execute(
             select(func.count(EventAssignment.id)).where(
                 EventAssignment.event_id == event_id,
-                EventAssignment.job_role_id == role.job_role_id,
+                EventAssignment.job_role_id == job_role_id,
                 EventAssignment.status == "approved",
             )
         )
         approved = approved_result.scalar() or 0
 
+        # Count ALL pending/invited assignments for this job_role_id in this event
         pending_result = await db.execute(
             select(func.count(EventAssignment.id)).where(
                 EventAssignment.event_id == event_id,
-                EventAssignment.job_role_id == role.job_role_id,
+                EventAssignment.job_role_id == job_role_id,
                 EventAssignment.status.in_(["pending", "invited"]),
             )
         )
@@ -52,12 +62,17 @@ async def check_and_update_event_status(event_id: int, db: AsyncSession) -> None
 
         total_for_role = approved + pending
 
-        # Sincronizar slots_filled con aprobados reales
-        role.slots_filled = approved
+        # Sync slots_filled across the role's shifts
+        # Distribute approved among the shifts (cap each at its slots_required)
+        remaining_approved = approved
+        for role in role_list:
+            fill = min(remaining_approved, role.slots_required)
+            role.slots_filled = fill
+            remaining_approved -= fill
 
-        if total_for_role < role.slots_required:
+        if total_for_role < total_required_for_role:
             all_slots_covered = False
-        if approved < role.slots_required:
+        if approved < total_required_for_role:
             all_slots_approved = False
 
     # Determinar nuevo estado
@@ -67,3 +82,5 @@ async def check_and_update_event_status(event_id: int, db: AsyncSession) -> None
         event.status = "filled_pending"
     else:
         event.status = "published"
+
+    await db.flush()

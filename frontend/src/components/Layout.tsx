@@ -4,7 +4,7 @@ import { isAdmin, isAdminOrCoord } from '@/lib/auth'
 import {
   CalendarDays, Users, Briefcase, BarChart2, LogOut,
   Home, Building2, KeyRound, UserCircle, Globe,
-  Menu, X, Newspaper, ChevronUp, Settings
+  Menu, X, Newspaper, ChevronUp, Settings, Clock
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useRef } from 'react'
@@ -62,6 +62,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { to: '/users',            label: t('nav.users'),     icon: Users,        show: isAdmin(user) },
     { to: '/job-roles',        label: t('nav.roles'),     icon: Briefcase,    show: isAdmin(user) },
     { to: '/company-settings', label: t('nav.myCompany'), icon: Settings,     show: isAdmin(user) && user?.role !== 'super_admin' },
+    { to: '/event-hours',      label: t('nav.eventHours'), icon: Clock,       show: isAdminOrCoord(user) },
     { to: '/reports',          label: t('nav.reports'),   icon: BarChart2,    show: isAdminOrCoord(user) || user?.role === 'employee' },
   ]
 

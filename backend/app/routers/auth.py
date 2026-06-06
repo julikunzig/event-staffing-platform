@@ -13,7 +13,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str  # Can be email or username
     password: str
     company_id: int
 
@@ -35,35 +35,56 @@ class CompanyItem(BaseModel):
 
 @router.get("/companies", response_model=list[CompanyItem])
 async def get_user_companies(email: str, db: AsyncSession = Depends(get_db)):
-    # Normalizar email a minúsculas para búsqueda case-insensitive
-    email_lower = email.strip().lower()
+    # Accept email or username - normalize to lowercase
+    login_identifier = email.strip().lower()
+    
+    # Try email first
     result = await db.execute(
         select(Company)
         .join(UserCompanyMembership, UserCompanyMembership.company_id == Company.id)
         .join(User, User.id == UserCompanyMembership.user_id)
-        .where(User.email == email_lower, User.is_active == True, Company.is_active == True,
+        .where(User.email == login_identifier, User.is_active == True, Company.is_active == True,
                UserCompanyMembership.is_active == True)
     )
     companies = result.scalars().all()
+    
+    # If not found by email, try username
+    if not companies:
+        result = await db.execute(
+            select(Company)
+            .join(UserCompanyMembership, UserCompanyMembership.company_id == Company.id)
+            .join(User, User.id == UserCompanyMembership.user_id)
+            .where(User.username == login_identifier, User.is_active == True, Company.is_active == True,
+                   UserCompanyMembership.is_active == True)
+        )
+        companies = result.scalars().all()
+    
     return [CompanyItem(id=c.id, name=c.name, slug=c.slug) for c in companies]
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # Email case-insensitive: normalizar a minúsculas
-    email_lower = body.email.strip().lower()
-    result = await db.execute(select(User).where(User.email == email_lower, User.is_active == True))
+    # Accept email or username - normalize to lowercase
+    login_identifier = body.email.strip().lower()
+    
+    # Try email first
+    result = await db.execute(select(User).where(User.email == login_identifier, User.is_active == True))
     user = result.scalar_one_or_none()
+    
+    # If not found by email, try username
+    if not user:
+        result = await db.execute(select(User).where(User.username == login_identifier, User.is_active == True))
+        user = result.scalar_one_or_none()
+    
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
 
-    # Verificar contraseña (case-sensitive, tal como fue creada)
-    # TEMPORALMENTE DESHABILITADO PARA TESTING
-    # if not bcrypt.checkpw(body.password.encode(), user.password_hash.encode()):
-    #     raise HTTPException(
-    #         status_code=status.HTTP_401_UNAUTHORIZED,
-    #         detail="Contraseña incorrecta. Por favor verifica tu contraseña e intenta de nuevo."
-    #     )
+    # Verificar contraseña
+    if not bcrypt.checkpw(body.password.encode(), user.password_hash.encode()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Contraseña incorrecta. Por favor verifica tu contraseña e intenta de nuevo."
+        )
 
     mem_result = await db.execute(
         select(UserCompanyMembership, Profile)
@@ -79,7 +100,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sin acceso a esta empresa")
 
     membership, profile = row
-    token = create_access_token(user.id, body.company_id, profile.code, user.name)
+    token = create_access_token(user.id, body.company_id, profile.code, user.name, user.must_change_password)
     return TokenResponse(access_token=token)
 
 
@@ -138,7 +159,12 @@ async def change_password(
     user.password_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
     user.must_change_password = False
     await db.commit()
-    return {"message": "Contraseña actualizada correctamente"}
+
+    # Return a fresh token with must_change_password = False
+    company_id = current_user.get("company_id")
+    role = current_user.get("role", "employee")
+    new_token = create_access_token(user.id, company_id, role, user.name, False)
+    return {"message": "Contraseña actualizada correctamente", "access_token": new_token}
 
 
 import secrets

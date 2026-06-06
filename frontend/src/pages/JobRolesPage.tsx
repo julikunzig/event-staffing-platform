@@ -37,6 +37,7 @@ export default function JobRolesPage() {
   const [members, setMembers]       = useState<Member[]>([])
   const [membersLoading, setMembersLoading] = useState(false)
   const [selectedIds, setSelectedIds]   = useState<Set<number>>(new Set())
+  const [initialIds, setInitialIds]     = useState<Set<number>>(new Set())  // Track originally assigned
   const [searchFilter, setSearchFilter] = useState('')
   const [assignResult, setAssignResult] = useState('')
   const [assignLoading, setAssignLoading] = useState(false)
@@ -73,16 +74,26 @@ export default function JobRolesPage() {
 
   const toggleExpand = async (roleId: number) => {
     if (expandedRole === roleId) { setExpandedRole(null); return }
-    setExpandedRole(roleId); setSelectedIds(new Set()); setAssignResult(''); setSearchFilter(''); setCustomRates({})
+    setExpandedRole(roleId); setSelectedIds(new Set()); setInitialIds(new Set()); setAssignResult(''); setSearchFilter(''); setCustomRates({})
     setMembersLoading(true)
     try {
-      const [membersRes, withRolesRes] = await Promise.all([
+      const [membersRes, withRolesRes, roleEmployeesRes] = await Promise.all([
         api.get<Member[]>(`/users/companies/${user?.company_id}/members`),
         api.get<{ id: number; roles: { id: number }[] }[]>('/job-roles/employees-with-roles'),
+        api.get<{ user_id: number; hourly_rate_override: number | null }[]>(`/job-roles/employees/${roleId}`),
       ])
       setMembers(membersRes.data.filter(m => m.profile === 'employee'))
       const alreadyHave = new Set(withRolesRes.data.filter(e => e.roles.some(r => r.id === roleId)).map(e => e.id))
       setSelectedIds(alreadyHave as Set<number>)
+      setInitialIds(new Set(alreadyHave) as Set<number>)
+      // Pre-load existing override rates
+      const existingRates: Record<number, string> = {}
+      for (const emp of roleEmployeesRes.data) {
+        if (emp.hourly_rate_override != null) {
+          existingRates[emp.user_id] = String(emp.hourly_rate_override)
+        }
+      }
+      setCustomRates(existingRates)
     } catch { setMembers([]) } finally { setMembersLoading(false) }
   }
 
@@ -93,46 +104,82 @@ export default function JobRolesPage() {
   }
 
   const handleBulkAssign = async (roleId: number) => {
-    if (selectedIds.size === 0) return
     setAssignLoading(true); setAssignResult('')
     try {
-      // Build hourly_rates map for employees with custom rates
-      const hourly_rates: Record<string, number> = {}
-      for (const [uid, rateStr] of Object.entries(customRates)) {
-        if (rateStr && parseFloat(rateStr) > 0) {
-          hourly_rates[uid] = parseFloat(rateStr)
+      // Determine which employees to REMOVE (were initially assigned, now unchecked)
+      const toRemove = Array.from(initialIds).filter(id => !selectedIds.has(id))
+      let removedCount = 0
+      for (const uid of toRemove) {
+        try {
+          await api.delete(`/job-roles/${roleId}/employees/${uid}`)
+          removedCount++
+        } catch (err: any) {
+          console.error(`Error removing role from user ${uid}:`, err.response?.data || err)
         }
       }
-      const res = await api.post(`/job-roles/bulk-assign/${roleId}`, {
-        user_ids: Array.from(selectedIds),
-        hourly_rates: Object.keys(hourly_rates).length > 0 ? hourly_rates : null,
-      })
-      const data = res.data as { assigned: number[]; skipped: number[] }
 
-      // For skipped employees (already assigned) that have a rate change, update via employee-rate endpoint
+      // Now assign new employees and update rates for existing ones
+      const toAssign = Array.from(selectedIds)
+      let assignedCount = 0
       let rateUpdated = 0
-      if (data.skipped.length > 0) {
-        for (const uid of data.skipped) {
-          const rateStr = customRates[uid]
+
+      if (toAssign.length > 0) {
+        // Build hourly_rates map for employees with custom rates
+        const hourly_rates: Record<string, number> = {}
+        for (const [uid, rateStr] of Object.entries(customRates)) {
           if (rateStr && parseFloat(rateStr) > 0) {
-            try {
-              // Get the employee_job_role ID for this user+role
-              const empRoles = await api.get(`/users/${uid}/rates`)
-              const ejr = empRoles.data.find((r: any) => r.job_role_id === roleId)
-              if (ejr) {
-                await api.patch(`/job-roles/employee-rate/${ejr.id}`, { hourly_rate_override: parseFloat(rateStr) })
-                rateUpdated++
+            hourly_rates[uid] = parseFloat(rateStr)
+          }
+        }
+        const res = await api.post(`/job-roles/bulk-assign/${roleId}`, {
+          user_ids: toAssign,
+          hourly_rates: Object.keys(hourly_rates).length > 0 ? hourly_rates : null,
+        })
+        const data = res.data as { assigned: number[]; skipped: number[] }
+        assignedCount = data.assigned.length
+
+        // For skipped employees (already assigned), update their rate if changed
+        if (data.skipped.length > 0) {
+          const roleEmployeesRes = await api.get<{ id: number; user_id: number; hourly_rate_override: number | null }[]>(`/job-roles/employees/${roleId}`)
+          const ejrMap = new Map<number, { id: number; hourly_rate_override: number | null }>()
+          for (const emp of roleEmployeesRes.data) {
+            ejrMap.set(emp.user_id, { id: emp.id, hourly_rate_override: emp.hourly_rate_override })
+          }
+
+          for (const uid of data.skipped) {
+            const rateStr = customRates[uid]
+            const ejrInfo = ejrMap.get(uid)
+            if (!ejrInfo) continue
+
+            if (rateStr && parseFloat(rateStr) > 0) {
+              const newRate = parseFloat(rateStr)
+              if (ejrInfo.hourly_rate_override === null || Math.abs(ejrInfo.hourly_rate_override - newRate) > 0.001) {
+                try {
+                  await api.patch(`/job-roles/employee-rate/${ejrInfo.id}`, { hourly_rate_override: newRate })
+                  rateUpdated++
+                } catch (err: any) {
+                  console.error(`Error updating rate for user ${uid}:`, err.response?.data || err)
+                }
               }
-            } catch {}
+            } else if (rateStr === '' && ejrInfo.hourly_rate_override !== null) {
+              try {
+                await api.patch(`/job-roles/employee-rate/${ejrInfo.id}`, { hourly_rate_override: null })
+                rateUpdated++
+              } catch (err: any) {
+                console.error(`Error clearing rate for user ${uid}:`, err.response?.data || err)
+              }
+            }
           }
         }
       }
 
-      let msg = `✅ ${data.assigned.length} asociado(s)`
-      if (rateUpdated > 0) msg += `, ${rateUpdated} tarifa(s) actualizada(s)`
-      if (data.skipped.length > 0 && rateUpdated === 0) msg += `, ${data.skipped.length} ya asociado(s)`
-      setAssignResult(msg)
-      setSelectedIds(new Set()); setCustomRates({})
+      // Build result message
+      const parts: string[] = []
+      if (assignedCount > 0) parts.push(`${assignedCount} asociado(s)`)
+      if (rateUpdated > 0) parts.push(`${rateUpdated} tarifa(s) actualizada(s)`)
+      if (removedCount > 0) parts.push(`${removedCount} removido(s)`)
+      if (parts.length === 0) parts.push('Sin cambios')
+      setAssignResult(`✅ ${parts.join(', ')}`)
     } catch (e: any) {
       setAssignResult(`❌ ${e.response?.data?.detail || t('common.error')}`)
     } finally { setAssignLoading(false) }
@@ -295,10 +342,10 @@ export default function JobRolesPage() {
                   )}
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', flexWrap: 'wrap', gap: '8px' }}>
-                    <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>{selectedIds.size} {t('common.selected')}</p>
-                    <button onClick={() => handleBulkAssign(role.id)} disabled={assignLoading || selectedIds.size === 0}
-                      style={{ padding: '8px 16px', borderRadius: '9px', border: 'none', background: selectedIds.size === 0 ? '#e5e7eb' : `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: selectedIds.size === 0 ? '#9ca3af' : '#fff', fontSize: '13px', fontWeight: 700, cursor: selectedIds.size === 0 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
-                      {assignLoading ? t('roles.associating') : `${t('roles.associate')}${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`}
+                    <p style={{ margin: 0, fontSize: '12px', color: '#9ca3af' }}>{selectedIds.size} {t('common.selected')}{initialIds.size > selectedIds.size ? ` (${initialIds.size - selectedIds.size} por remover)` : ''}</p>
+                    <button onClick={() => handleBulkAssign(role.id)} disabled={assignLoading}
+                      style={{ padding: '8px 16px', borderRadius: '9px', border: 'none', background: `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: assignLoading ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif", opacity: assignLoading ? 0.7 : 1 }}>
+                      {assignLoading ? t('roles.associating') : t('common.save')}
                     </button>
                   </div>
 

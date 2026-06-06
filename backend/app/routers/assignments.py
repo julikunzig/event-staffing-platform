@@ -267,7 +267,7 @@ async def direct_assign(
     admin_id = int(current_user["sub"])
 
     event = await _get_event_for_company(event_id, company_id, db)
-    if event.status not in ("published", "draft"):
+    if event.status in ("cancelled", "finished"):
         raise HTTPException(status_code=400, detail="No se puede asignar en este estado")
 
     existing = await db.execute(
@@ -330,6 +330,7 @@ async def direct_assign(
         user_id=body.user_id,
         company_id=company_id,
         job_role_id=body.job_role_id,
+        event_job_role_id=body.event_job_role_id,
         status="approved",
         assigned_by=admin_id,
     )
@@ -339,6 +340,55 @@ async def direct_assign(
     await db.refresh(assignment)
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(event_id, db)
+
+    # Send notification to employee (email + WhatsApp + push)
+    try:
+        employee = await db.get(User, body.user_id)
+        role = await db.get(JobRole, body.job_role_id)
+
+        if employee and role:
+            # Get shift time
+            specific_ejr = await db.get(EventJobRole, body.event_job_role_id) if body.event_job_role_id else ejr
+            shift_time = str(specific_ejr.start_time)[:5] if specific_ejr and specific_ejr.start_time else str(event.start_time)
+            effective_rate = str(specific_ejr.hourly_rate_override or role.hourly_rate) if specific_ejr else str(role.hourly_rate)
+
+            # Email
+            from app.services.email_service import send_application_approved_email
+            await send_application_approved_email(
+                employee_email=employee.email,
+                event_name=event.name,
+                event_date=event.event_date.strftime("%Y-%m-%d"),
+                start_time=shift_time,
+                address=event.address,
+                city=event.city or "",
+                state=event.state or "",
+                zip_code=event.zip_code or "",
+                role_name=role.name,
+                hourly_rate=effective_rate,
+                dress_code=event.dress_code,
+            )
+
+            # WhatsApp
+            if employee.phone:
+                from app.services.whatsapp_service import send_whatsapp
+                wa_msg = (
+                    f"✅ *¡Has sido asignado a un evento!*\n\n"
+                    f"📋 *{event.name}*\n"
+                    f"📅 Fecha: {event.event_date.strftime('%Y-%m-%d')}\n"
+                    f"🕐 Hora: {shift_time}\n"
+                    f"📍 {event.address}, {event.city or ''} {event.state or ''}\n"
+                    f"👔 Dress code: {event.dress_code or 'No especificado'}\n"
+                    f"💼 Rol: {role.name} — ${effective_rate}/hora\n\n"
+                    f"Ya estás confirmado. ¡Nos vemos ahí!"
+                )
+                send_whatsapp(employee.phone, wa_msg)
+
+            # Push
+            from app.services.push_service import send_push_to_user
+            await send_push_to_user(body.user_id, f"✅ Asignado: {event.name}", f"Fuiste asignado como {role.name}", "/profile", db)
+    except Exception as e:
+        print(f"[DirectAssign] Error sending notifications: {e}")
+
     return assignment
 
 
@@ -485,6 +535,10 @@ async def invite_employee(
                 db,
             )
         except Exception: pass
+
+    # Update event status after invitation
+    from app.services.event_status import check_and_update_event_status
+    await check_and_update_event_status(event_id, db)
 
     return assignment
 
@@ -854,6 +908,10 @@ async def bulk_invite(
         except Exception as e:
             print(f"[Push] Error sending to user {task['user_id']}: {e}")
 
+    # Update event status after invitations
+    from app.services.event_status import check_and_update_event_status
+    await check_and_update_event_status(event_id, db)
+
     return {"invited": created, "skipped": skipped, "count": len(created)}
 
 
@@ -953,6 +1011,11 @@ async def accept_invitation(
             event_date=event.event_date.strftime("%Y-%m-%d"),
             accepted=True,
         )
+        # WhatsApp to admin
+        if event_creator.phone:
+            from app.services.whatsapp_service import send_whatsapp
+            msg = f"✅ *{employee.name}* aceptó la invitación para *{event.name}* ({event.event_date.strftime('%Y-%m-%d')}) como {role.name}."
+            send_whatsapp(event_creator.phone, msg)
         # Push to admin
         try:
             from app.services.push_service import send_push_to_user
@@ -996,6 +1059,11 @@ async def reject_invitation(
             event_date=event.event_date.strftime("%Y-%m-%d"),
             accepted=False,
         )
+        # WhatsApp to admin
+        if event_creator.phone:
+            from app.services.whatsapp_service import send_whatsapp
+            msg = f"❌ *{employee.name}* rechazó la invitación para *{event.name}* ({event.event_date.strftime('%Y-%m-%d')}) como {role.name}."
+            send_whatsapp(event_creator.phone, msg)
         # Push to admin
         try:
             from app.services.push_service import send_push_to_user
@@ -1109,8 +1177,9 @@ async def withdraw_from_event(
     db: AsyncSession = Depends(get_db),
 ):
     """Employee withdraws from a confirmed event (status approved → removed).
-    Only allowed if within the days_to_reject_event window."""
-    from datetime import date, timedelta
+    days_to_reject_event = 0 means always allowed (no restriction).
+    days_to_reject_event > 0 means must withdraw at least N days before the event."""
+    from datetime import date
     from app.models import WeeklyHoursConfig
 
     user_id = int(current_user["sub"])
@@ -1129,22 +1198,20 @@ async def withdraw_from_event(
     config = config_result.scalar_one_or_none()
     days_to_reject = config.days_to_reject_event if config else 0
 
-    if days_to_reject <= 0:
-        raise HTTPException(status_code=400, detail="No está permitido retirarse de eventos confirmados en esta empresa")
+    # If days_to_reject > 0, validate the time window
+    if days_to_reject > 0:
+        event = await db.get(Event, assignment.event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Evento no encontrado")
 
-    # Check if within the allowed window
-    event = await db.get(Event, assignment.event_id)
-    if not event:
-        raise HTTPException(status_code=404, detail="Evento no encontrado")
+        today = date.today()
+        days_until_event = (event.event_date - today).days
 
-    today = date.today()
-    days_until_event = (event.event_date - today).days
-
-    if days_until_event < days_to_reject:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No puedes retirarte. Solo puedes hacerlo con al menos {days_to_reject} día(s) de anticipación. Faltan {days_until_event} día(s) para el evento."
-        )
+        if days_until_event < days_to_reject:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No puedes retirarte. Solo puedes hacerlo con al menos {days_to_reject} día(s) de anticipación. Faltan {days_until_event} día(s) para el evento."
+            )
 
     # Withdraw: change status to removed and free the slot
     assignment.status = "removed"
@@ -1155,7 +1222,7 @@ async def withdraw_from_event(
         ejr = await db.get(EventJobRole, assignment.event_job_role_id)
     if not ejr:
         ejr_result = await db.execute(
-            select(EventJobRole).where(EventJobRole.event_id == event.id, EventJobRole.job_role_id == assignment.job_role_id)
+            select(EventJobRole).where(EventJobRole.event_id == assignment.event_id, EventJobRole.job_role_id == assignment.job_role_id)
         )
         ejr = ejr_result.scalars().first()
     if ejr and ejr.slots_filled > 0:
@@ -1166,6 +1233,37 @@ async def withdraw_from_event(
     # Re-evaluate event status
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(assignment.event_id, db)
+
+    # Send notifications to admin (email + WhatsApp)
+    try:
+        event = await db.get(Event, assignment.event_id)
+        event_creator = await db.get(User, event.created_by) if event else None
+        employee = await db.get(User, assignment.user_id)
+        role = await db.get(JobRole, assignment.job_role_id)
+
+        if event_creator and employee and role and event:
+            # Email
+            from app.services.email_service import send_employee_withdrew_email
+            await send_employee_withdrew_email(
+                admin_email=event_creator.email,
+                employee_name=employee.name,
+                event_name=event.name,
+                role_name=role.name,
+                event_date=event.event_date.strftime("%Y-%m-%d"),
+            )
+            # WhatsApp
+            if event_creator.phone:
+                from app.services.whatsapp_service import send_whatsapp
+                msg = f"⚠️ *{employee.name}* se retiró del evento *{event.name}* ({event.event_date.strftime('%Y-%m-%d')}) donde estaba confirmado como {role.name}."
+                send_whatsapp(event_creator.phone, msg)
+            # Push
+            try:
+                from app.services.push_service import send_push_to_user
+                await send_push_to_user(event.created_by, f"⚠️ {employee.name} se retiró", f"Se retiró de {event.name} ({role.name})", "/events", db)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[Withdraw] Error sending notifications: {e}")
 
     return {
         "id": assignment.id, "event_id": assignment.event_id, "user_id": assignment.user_id,

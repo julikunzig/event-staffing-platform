@@ -21,6 +21,18 @@ const labelStyle: React.CSSProperties = {
 interface Company { id: number; name: string; email: string | null; phone: string | null }
 interface WeeklyConfig { id: number; company_id: number; weekly_hours_limit: number; min_shift_hours: number; shift_start_minutes: number; horas_entre_eventos: number; admin_can_clock_in_all: boolean; days_to_reject_event: number; geolocation_enabled: boolean; overtime_multiplier: number; week_start_day: string; week_end_day: string }
 
+function Panel({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', marginBottom: '16px' }}>
+      <div style={{ height: '2px', background: `linear-gradient(90deg,${GREEN_DARK},${GREEN})` }} />
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {icon}<p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#111827' }}>{title}</p>
+      </div>
+      <div style={{ padding: '20px' }}>{children}</div>
+    </div>
+  )
+}
+
 export default function CompanySettingsPage() {
   const { user } = useAuth()
   const { t } = useTranslation()
@@ -85,7 +97,7 @@ export default function CompanySettingsPage() {
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError(''); setSuccess('')
     try {
-      await api.patch(`/companies/${config!.company_id}/weekly-config`, {
+      await api.patch(`/companies/${user?.company_id}/weekly-config`, {
         weekly_hours_limit: parseInt(weeklyHours), min_shift_hours: parseInt(minHours),
         shift_start_minutes: parseInt(minutesBefore), horas_entre_eventos: parseInt(horasEntreEventos),
         admin_can_clock_in_all: adminCanClockIn, days_to_reject_event: parseInt(daysToReject),
@@ -96,16 +108,6 @@ export default function CompanySettingsPage() {
     } catch (e: any) { setError(e.response?.data?.detail || t('companySettings.error')) }
     finally { setSaving(false) }
   }
-
-  const Panel = ({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) => (
-    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', marginBottom: '16px' }}>
-      <div style={{ height: '2px', background: `linear-gradient(90deg,${GREEN_DARK},${GREEN})` }} />
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {icon}<p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#111827' }}>{title}</p>
-      </div>
-      <div style={{ padding: '20px' }}>{children}</div>
-    </div>
-  )
 
   if (!isAdmin(user)) return (
     <div style={{ maxWidth: '600px' }}>
@@ -152,19 +154,30 @@ export default function CompanySettingsPage() {
       <Panel icon={<Settings size={15} color={GREEN} />} title={t('companySettings.configurationParameters')}>
         <form onSubmit={handleSaveConfig}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-            {[
-              { label: t('companySettings.weeklyHours'), val: weeklyHours, set: setWeeklyHours },
-              { label: t('companySettings.minHours'), val: minHours, set: setMinHours },
-              { label: t('companySettings.minutesBefore'), val: minutesBefore, set: setMinutesBefore },
-              { label: t('companySettings.horasEntreEventos'), val: horasEntreEventos, set: setHorasEntreEventos },
-              { label: t('companySettings.daysToReject') || 'Días para retirarse del evento', val: daysToReject, set: setDaysToReject },
-              { label: t('companySettings.overtimeMultiplier') || 'Multiplicador horas extras', val: overtimeMultiplier, set: setOvertimeMultiplier },
-            ].map(({ label, val, set }) => (
-              <div key={label}>
-                <label style={labelStyle}>{label} *</label>
-                <input type="number" min="0" step="0.01" value={val} onChange={e => set(e.target.value)} required style={fieldStyle} />
-              </div>
-            ))}
+            <div>
+              <label style={labelStyle}>{t('companySettings.weeklyHours')} *</label>
+              <input type="number" min="0" step="0.01" value={weeklyHours} onChange={e => setWeeklyHours(e.target.value)} required style={fieldStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('companySettings.minHours')} *</label>
+              <input type="number" min="0" step="0.01" value={minHours} onChange={e => setMinHours(e.target.value)} required style={fieldStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('companySettings.minutesBefore')} *</label>
+              <input type="number" min="0" step="1" value={minutesBefore} onChange={e => setMinutesBefore(e.target.value)} required style={fieldStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('companySettings.horasEntreEventos')} *</label>
+              <input type="number" min="0" step="1" value={horasEntreEventos} onChange={e => setHorasEntreEventos(e.target.value)} required style={fieldStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('companySettings.daysToReject')} *</label>
+              <input type="number" min="0" step="1" value={daysToReject} onChange={e => setDaysToReject(e.target.value)} required style={fieldStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('companySettings.overtimeMultiplier')} *</label>
+              <input type="number" min="0" step="0.01" value={overtimeMultiplier} onChange={e => setOvertimeMultiplier(e.target.value)} required style={fieldStyle} />
+            </div>
             {/* Week start/end day selectors */}
             <div>
               <label style={labelStyle}>{t('companySettings.weekStartDay') || 'Día inicio de semana'} *</label>

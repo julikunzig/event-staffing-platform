@@ -8,13 +8,14 @@ from app.core.config import settings
 bearer_scheme = HTTPBearer()
 
 
-def create_access_token(user_id: int, company_id: int, role: str, name: str = "") -> str:
+def create_access_token(user_id: int, company_id: int, role: str, name: str = "", must_change_password: bool = False) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=settings.JWT_EXPIRE_HOURS)
     payload = {
         "sub": str(user_id),
         "company_id": company_id,
         "role": role,
         "name": name,
+        "must_change_password": must_change_password,
         "exp": expire,
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
