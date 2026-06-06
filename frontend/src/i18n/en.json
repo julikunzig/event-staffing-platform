@@ -53,6 +53,7 @@
     "news": "News",
     "settings": "Settings",
     "eventHours": "Event Hours",
+    "help": "Help",
     "myCompany": "My Company"
   },
   "auth": {

@@ -4,7 +4,7 @@ import { isAdmin, isAdminOrCoord } from '@/lib/auth'
 import {
   CalendarDays, Users, Briefcase, BarChart2, LogOut,
   Home, Building2, KeyRound, UserCircle, Globe,
-  Menu, X, Newspaper, ChevronUp, Settings, Clock
+  Menu, X, Newspaper, ChevronUp, Settings, Clock, HelpCircle
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useRef } from 'react'
@@ -70,6 +70,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { to: '/profile',         label: t('nav.myShifts'),       icon: CalendarDays },
     { to: '/account',         label: t('nav.profile'),        icon: UserCircle },
     { to: '/change-password', label: t('nav.changePassword'), icon: KeyRound },
+    { to: '/help',            label: t('nav.help'),           icon: HelpCircle },
   ]
 
   const isActive = (path: string) => location.pathname.startsWith(path)
