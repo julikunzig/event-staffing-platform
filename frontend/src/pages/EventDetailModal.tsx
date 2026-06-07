@@ -1,3 +1,4 @@
+import React from 'react'
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { useTranslation } from 'react-i18next'
@@ -150,6 +151,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
   const [closeLoading, setCloseLoading] = useState(false)
   const [closeTime, setCloseTime]     = useState('')
   const [activeTab, setActiveTab]     = useState<'info' | 'shifts' | 'assignments'>('info')
+  const invitePanelRef = React.useRef<HTMLDivElement>(null)
 
   const loadData = async () => {
     try {
@@ -187,6 +189,11 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
 
   const openInvitePanel = async () => {
     setShowInvite(true); setInviteSearch(''); setSelected(new Map()); setInviteResult(''); setEmpLoading(true)
+    setTimeout(() => {
+      if (invitePanelRef.current) {
+        invitePanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 100)
     try {
       const res = await api.get<any[]>(`/events/${eventId}/eligible-employees`)
       const converted = res.data.map((e: any) => ({ id: e.user_id, name: e.name, email: e.email, phone: e.phone, roles: [{ id: e.job_role_id, name: e.job_role_name, hourly_rate: '0' }] }))
@@ -328,12 +335,12 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
 
   return (
     <>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', zIndex: 50 }} onClick={onClose} />
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', zIndex: 50 }} />
 
       <div style={{
         position: 'fixed', zIndex: 51,
         top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-        width: '100%', maxWidth: '640px', maxHeight: '90vh',
+        width: '100%', maxWidth: '640px', height: '90vh',
         display: 'flex', flexDirection: 'column',
         background: '#fff', borderRadius: '1.25rem',
         boxShadow: '0 25px 60px rgba(0,0,0,0.2)', overflow: 'hidden',
@@ -546,7 +553,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
 
                   {/* Panel invitar */}
                   {showInvite && isAdmin(user) && (
-                    <div style={{ ...S.section }}>
+                    <div ref={invitePanelRef} style={{ ...S.section }}>
                       <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '14px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                           <p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#111827' }}>{t('events.inviteEmployees')}</p>

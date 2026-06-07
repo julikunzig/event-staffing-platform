@@ -312,7 +312,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
     <>
       {/* ── Overlay ── */}
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', zIndex: 50 }}
-        onClick={onClose} />
+        />
 
       {/* ── Modal / Drawer ── */}
       <div style={{
@@ -321,7 +321,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
         // Desktop: centered modal
         top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
         width: '100%', maxWidth: '640px',
-        maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+        height: '90vh', display: 'flex', flexDirection: 'column',
         background: '#fff', borderRadius: '1.25rem',
         boxShadow: '0 25px 60px rgba(0,0,0,0.2)',
         overflow: 'hidden',

@@ -1,3 +1,4 @@
+import React from 'react'
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/context/AuthContext'
@@ -311,6 +312,9 @@ export default function EventsPage() {
   const [editEventId, setEditEventId]   = useState<number | null>(null)
   const [detailEventId, setDetailEventId] = useState<number | null>(null)
   const [itemsPerPage, setItemsPerPage]   = useState(12)
+  const [dateFilter, setDateFilter]       = useState('')
+  const [dateFrom, setDateFrom]           = useState('')
+  const [dateTo, setDateTo]               = useState('')
 
   const EVENT_STATUS  = getEventStatusMap(t)
   const ASSIGN_STATUS = getAssignStatusMap(t)
@@ -342,8 +346,40 @@ export default function EventsPage() {
     ? ['', 'created', 'published', 'filled_pending', 'filled', 'started', 'finished', 'cancelled']
     : ['', 'published', 'filled_pending', 'filled', 'started', 'finished']
 
-  const paginatedEvents = events.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-  const totalPages = Math.ceil(events.length / itemsPerPage)
+  // ── Filtrado por fecha ──
+  const filteredByDate = React.useMemo(() => {
+    if (!dateFilter) return events
+    const today = new Date(); today.setHours(0,0,0,0)
+    const todayStr = today.toISOString().split('T')[0]
+    if (dateFilter === 'today') {
+      return events.filter(e => e.event_date === todayStr)
+    }
+    if (dateFilter === 'yesterday') {
+      const y = new Date(today); y.setDate(y.getDate() - 1)
+      const yStr = y.toISOString().split('T')[0]
+      return events.filter(e => e.event_date === yStr)
+    }
+    if (dateFilter === 'week') {
+      const start = new Date(today); start.setDate(today.getDate() - today.getDay())
+      const end   = new Date(start); end.setDate(start.getDate() + 6)
+      return events.filter(e => e.event_date >= start.toISOString().split('T')[0] && e.event_date <= end.toISOString().split('T')[0])
+    }
+    if (dateFilter === 'month') {
+      const m = String(today.getMonth() + 1).padStart(2,'0')
+      const y = today.getFullYear()
+      return events.filter(e => e.event_date.startsWith(`${y}-${m}`))
+    }
+    if (dateFilter === 'year') {
+      return events.filter(e => e.event_date.startsWith(String(today.getFullYear())))
+    }
+    if (dateFilter === 'custom' && dateFrom && dateTo) {
+      return events.filter(e => e.event_date >= dateFrom && e.event_date <= dateTo)
+    }
+    return events
+  }, [events, dateFilter, dateFrom, dateTo])
+
+  const paginatedEvents = filteredByDate.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+  const totalPages = Math.ceil(filteredByDate.length / itemsPerPage)
 
   // ── Status summary counts ──
   const statusCounts = useMemo(() => {
@@ -357,8 +393,8 @@ export default function EventsPage() {
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
       <span style={{ fontSize: '12px', color: '#9ca3af', fontFamily: "'Poppins',sans-serif" }}>
         {lang === 'en'
-          ? `Showing ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, events.length)} of ${events.length} events`
-          : `Mostrando ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, events.length)} de ${events.length} eventos`}
+          ? `Showing ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, filteredByDate.length)} of ${filteredByDate.length} events`
+          : `Mostrando ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, filteredByDate.length)} de ${filteredByDate.length} eventos`}
       </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1}
@@ -401,7 +437,7 @@ export default function EventsPage() {
 
   return (
     <>
-    <div style={{ maxWidth: '960px', margin: '0 auto', fontFamily: "'Poppins',sans-serif" }}>
+    <div style={{ maxWidth: '100%', padding: '0 8px', fontFamily: "'Poppins',sans-serif" }}>
 
       {/* ── Page header ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
@@ -481,6 +517,42 @@ export default function EventsPage() {
         </div>
       </form>
 
+      {/* ── Filtros de fecha rápida ── */}
+      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', marginBottom: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {[
+          { key: '', label: lang === 'en' ? 'All dates' : 'Todas' },
+          { key: 'today',     label: lang === 'en' ? 'Today'      : 'Hoy' },
+          { key: 'yesterday', label: lang === 'en' ? 'Yesterday'  : 'Ayer' },
+          { key: 'week',      label: lang === 'en' ? 'This week'  : 'Esta semana' },
+          { key: 'month',     label: lang === 'en' ? 'This month' : 'Este mes' },
+          { key: 'year',      label: lang === 'en' ? 'This year'  : 'Este año' },
+          { key: 'custom',    label: lang === 'en' ? 'Custom'     : 'Personalizado' },
+        ].map(opt => {
+          const active = dateFilter === opt.key
+          return (
+            <button key={opt.key} onClick={() => { setDateFilter(opt.key); setCurrentPage(1) }}
+              style={{
+                padding: '4px 12px', borderRadius: '999px', border: active ? 'none' : '1px solid #e5e7eb',
+                background: active ? 'linear-gradient(135deg,#1e9038,#2db84b)' : '#fff',
+                color: active ? '#fff' : '#6b7280', fontSize: '12px', fontWeight: 600,
+                cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: "'Poppins',sans-serif",
+                boxShadow: active ? '0 2px 8px rgba(45,184,75,0.25)' : 'none',
+              }}>
+              {opt.label}
+            </button>
+          )
+        })}
+        {dateFilter === 'custom' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setCurrentPage(1) }}
+              style={{ height: '30px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0 8px', fontSize: '12px', outline: 'none', fontFamily: "'Poppins',sans-serif" }} />
+            <span style={{ fontSize: '12px', color: '#9ca3af' }}>—</span>
+            <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setCurrentPage(1) }}
+              style={{ height: '30px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0 8px', fontSize: '12px', outline: 'none', fontFamily: "'Poppins',sans-serif" }} />
+          </div>
+        )}
+      </div>
+
       {/* ── Status filters ── */}
       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '16px' }}>
         {statusFilters.map(s => {
@@ -519,7 +591,7 @@ export default function EventsPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '13px', color: '#374151', fontWeight: 600, fontFamily: "'Poppins',sans-serif" }}>
-                  {events.length} {lang === 'en' ? (events.length === 1 ? 'event' : 'events') : (events.length === 1 ? 'evento' : 'eventos')}
+                  {filteredByDate.length} {lang === 'en' ? (filteredByDate.length === 1 ? 'event' : 'events') : (filteredByDate.length === 1 ? 'evento' : 'eventos')}
                   {statusFilter && EVENT_STATUS[statusFilter as keyof typeof EVENT_STATUS] && (
                     <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 600, color: (EVENT_STATUS[statusFilter as keyof typeof EVENT_STATUS] as any).color }}>
                       · {(EVENT_STATUS[statusFilter as keyof typeof EVENT_STATUS] as any).label}
@@ -552,7 +624,7 @@ export default function EventsPage() {
               )}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
               {paginatedEvents.map(event => {
                 const myAssign = myAssignments.find(a => a.event_id === event.id)
                 const hovered  = hoveredCard === event.id
