@@ -203,7 +203,7 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
 
     # Crear nuevo token
     token_str = secrets.token_urlsafe(32)
-    expires = datetime.now(timezone.utc) + timedelta(hours=2)
+    expires = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=2)
     reset_token = PasswordResetToken(user_id=user.id, token=token_str, expires_at=expires)
     db.add(reset_token)
     await db.flush()
