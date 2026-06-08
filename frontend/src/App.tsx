@@ -21,6 +21,7 @@ import EventEditPage from '@/pages/EventEditPage'
 import NewsPage from '@/pages/NewsPage'
 import EventHoursPage from '@/pages/EventHoursPage'
 import HelpPage from '@/pages/HelpPage'
+import PayrollPage from '@/pages/PayrollPage'
 
 const queryClient = new QueryClient()
 
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/reports" element={<ProtectedRoute roles={['admin', 'super_admin', 'coordinator', 'employee']}><ReportsPage /></ProtectedRoute>} />
             <Route path="/news" element={<ProtectedRoute><NewsPage /></ProtectedRoute>} />
             <Route path="/event-hours" element={<ProtectedRoute roles={['admin', 'super_admin', 'coordinator']}><EventHoursPage /></ProtectedRoute>} />
+            <Route path="/payroll" element={<ProtectedRoute roles={['admin', 'super_admin']}><PayrollPage /></ProtectedRoute>} />
             <Route path="/help" element={<ProtectedRoute><HelpPage /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

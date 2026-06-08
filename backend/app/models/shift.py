@@ -34,6 +34,7 @@ class Shift(Base):
     overtime_pay: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     total_pay: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     modified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    settlement_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_settlements.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

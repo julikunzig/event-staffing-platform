@@ -65,6 +65,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
   const [dressCode, setDressCode] = useState('')
   const [notes, setNotes]         = useState('')
   const [eventStatus, setEventStatus] = useState('')
+  const [eventCode, setEventCode] = useState('')
 
   // ── Roles ──
   const [jobRoles, setJobRoles]       = useState<JobRole[]>([])
@@ -124,6 +125,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
         setEndTime(e.end_time || ''); setAddress(e.address); setCity(e.city || '')
         setState(e.state || ''); setZipCode(e.zip_code || '')
         setDressCode(e.dress_code || ''); setNotes(e.notes || ''); setEventStatus(e.status)
+        setEventCode(e.event_code || '')
         setEventRoles(erRes.data); setJobRoles(jrRes.data)
         const slots: Record<number, number> = {}
         const rates: Record<number, string> = {}
@@ -345,6 +347,11 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                 </span>
               )
             })()}
+            {mode === 'edit' && eventCode && (
+              <span style={{ background: '#eff6ff', color: '#1d4ed8', fontSize: '11px', fontWeight: 600, padding: '2px 10px', borderRadius: '999px', border: '1px solid #bfdbfe' }}>
+                #{eventCode}
+              </span>
+            )}
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', borderRadius: '8px', color: '#9ca3af' }}
             onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f3f4f6'}
@@ -687,8 +694,8 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
 
             {/* Footer */}
             <div style={{ display: 'flex', gap: '8px', padding: '14px 20px', borderTop: '1px solid #f3f4f6', background: '#fafafa', flexShrink: 0 }}>
-              <button type="submit" disabled={saving}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', borderRadius: '10px', border: 'none', background: saving ? '#9ca3af' : `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif", boxShadow: saving ? 'none' : '0 2px 8px rgba(45,184,75,0.25)', transition: 'all 0.2s' }}>
+              <button type="submit" disabled={saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', borderRadius: '10px', border: 'none', background: (saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))) ? '#9ca3af' : `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: (saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))) ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif", boxShadow: (saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))) ? 'none' : '0 2px 8px rgba(45,184,75,0.25)', transition: 'all 0.2s' }}>
                 {saving ? <><RefreshCw size={14} style={{ animation: 'spin 0.7s linear infinite' }} />{t('common.loading')}</> : mode === 'create' ? <><Plus size={14} />{t('forms.createEvent')}</> : <><Save size={14} />{t('common.save')}</>}
               </button>
               <button type="button" onClick={onClose}

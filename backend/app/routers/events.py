@@ -108,6 +108,7 @@ class EventJobRoleOut(BaseModel):
 class EventOut(BaseModel):
     id: int
     company_id: int
+    event_code: str | None = None
     name: str
     event_date: date
     start_time: time
@@ -177,11 +178,20 @@ async def create_event(
         latitude=lat,
         longitude=lng,
         dress_code=body.dress_code.strip().upper() if body.dress_code else body.dress_code,
-        is_public=True,   # siempre True internamente; visibilidad se controla por invitaciones
+        is_public=True,
         status="created",
         created_by=user_id,
     )
     db.add(event)
+    await db.flush()
+
+    # Generate event_code: {company_id}-{consecutive}
+    from sqlalchemy import func as sqlfunc
+    max_code_result = await db.execute(
+        select(sqlfunc.count(Event.id)).where(Event.company_id == company_id)
+    )
+    consecutive = max_code_result.scalar() or 1
+    event.event_code = f"{company_id}-{consecutive}"
     await db.flush()
 
     for jr in body.job_roles:
@@ -219,16 +229,22 @@ async def list_events(
     # Filtro de búsqueda por nombre o ID
     if search:
         search_stripped = search.strip()
-        # Si es numérico, buscar también por ID exacto
+        # Search by name, ID, or event_code
         if search_stripped.isdigit():
             query = query.where(
                 or_(
                     Event.name.ilike(f"%{search_stripped}%"),
                     Event.id == int(search_stripped),
+                    Event.event_code.ilike(f"%{search_stripped}%"),
                 )
             )
         else:
-            query = query.where(Event.name.ilike(f"%{search_stripped}%"))
+            query = query.where(
+                or_(
+                    Event.name.ilike(f"%{search_stripped}%"),
+                    Event.event_code.ilike(f"%{search_stripped}%"),
+                )
+            )
 
     # Filtro por rango de fechas
     if from_date:

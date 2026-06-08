@@ -14,7 +14,7 @@ const GREEN      = '#2db84b'
 const GREEN_DARK = '#1e9038'
 
 interface Event {
-  id: number; name: string; event_date: string; start_time: string
+  id: number; name: string; event_code: string | null; event_date: string; start_time: string
   end_time: string | null; address: string; city: string | null
   state: string | null; zip_code: string | null
   dress_code: string | null; notes: string | null; status: string
@@ -358,6 +358,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#111827' }}>{event?.name}</h2>
+                    {event?.event_code && <span style={{ fontSize: '11px', fontWeight: 600, color: '#1d4ed8', background: '#eff6ff', padding: '2px 8px', borderRadius: '999px', border: '1px solid #bfdbfe' }}>#{event.event_code}</span>}
                     {evSt && <Pill status={event!.status} map={statusConfig} />}
                   </div>
                   <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>

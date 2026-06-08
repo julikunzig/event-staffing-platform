@@ -10,6 +10,7 @@ class Event(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    event_code: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     event_date: Mapped[date] = mapped_column(Date, nullable=False)
     start_time: Mapped[time] = mapped_column(Time, nullable=False)

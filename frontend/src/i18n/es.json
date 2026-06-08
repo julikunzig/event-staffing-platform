@@ -54,7 +54,8 @@
     "settings": "Configuración",
     "eventHours": "Horas Evento",
     "help": "Ayuda",
-    "myCompany": "Mi Empresa"
+    "myCompany": "Mi Empresa",
+    "payroll": "Liquidación"
   },
   "auth": {
     "email": "Email",
@@ -513,6 +514,26 @@
     "weekEnd": "Día de Fin de Semana",
     "minShiftHours": "Horas Mínimas de Turno",
     "shiftStartMinutes": "Minutos Antes para Iniciar Turno"
+  },
+  "payroll": {
+    "title": "Liquidación",
+    "settle": "Liquidar",
+    "settling": "Liquidando...",
+    "settleSuccess": "Liquidación creada",
+    "noSettlements": "No hay liquidaciones",
+    "noSettlementsDesc": "Ejecuta una liquidación para calcular los pagos de los empleados con turnos finalizados.",
+    "settlementDetail": "Detalle Liquidación",
+    "statusSettled": "Liquidado",
+    "statusProcessing": "Procesando Pago",
+    "processForPayment": "Procesar para Pago",
+    "confirmProcess": "¿Confirmar? Una vez en 'Procesando Pago', los turnos incluidos no podrán ser re-liquidados.",
+    "processSuccess": "Liquidación marcada como procesando pago",
+    "employees": "empleados",
+    "shifts": "turnos",
+    "createdBy": "por",
+    "week": "Semana",
+    "regular": "Regular",
+    "overtime": "Extras"
   },
   "eventHoursPage": {
     "selectEvent": "Seleccionar Evento",

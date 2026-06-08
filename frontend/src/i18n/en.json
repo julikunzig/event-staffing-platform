@@ -54,7 +54,8 @@
     "settings": "Settings",
     "eventHours": "Event Hours",
     "help": "Help",
-    "myCompany": "My Company"
+    "myCompany": "My Company",
+    "payroll": "Payroll"
   },
   "auth": {
     "email": "Email",
@@ -519,6 +520,26 @@
     "weekEnd": "Week End Day",
     "minShiftHours": "Minimum Shift Hours",
     "shiftStartMinutes": "Minutes Before to Start Shift"
+  },
+  "payroll": {
+    "title": "Payroll Settlement",
+    "settle": "Run Settlement",
+    "settling": "Settling...",
+    "settleSuccess": "Settlement created",
+    "noSettlements": "No settlements",
+    "noSettlementsDesc": "Run a settlement to calculate payments for employees with completed shifts.",
+    "settlementDetail": "Settlement Detail",
+    "statusSettled": "Settled",
+    "statusProcessing": "Processing Payment",
+    "processForPayment": "Process for Payment",
+    "confirmProcess": "Confirm? Once in 'Processing Payment', included shifts cannot be re-settled.",
+    "processSuccess": "Settlement marked as processing payment",
+    "employees": "employees",
+    "shifts": "shifts",
+    "createdBy": "by",
+    "week": "Week",
+    "regular": "Regular",
+    "overtime": "Overtime"
   },
   "eventHoursPage": {
     "selectEvent": "Select Event",

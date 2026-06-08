@@ -4,7 +4,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from app.core.config import settings
-from app.routers import auth, companies, users, job_roles, events, assignments, shifts, reports, news, ai, whatsapp, push, dashboard
+from app.routers import auth, companies, users, job_roles, events, assignments, shifts, reports, news, ai, whatsapp, push, dashboard, payroll
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -66,6 +66,7 @@ app.include_router(ai.router, prefix=settings.API_PREFIX)
 app.include_router(whatsapp.router, prefix=settings.API_PREFIX)
 app.include_router(push.router, prefix=settings.API_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
+app.include_router(payroll.router, prefix=settings.API_PREFIX)
 
 # TODO: Servir archivos estáticos (logos) - comentado temporalmente
 # UPLOAD_DIR = Path("/app/uploads")

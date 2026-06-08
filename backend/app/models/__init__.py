@@ -16,6 +16,7 @@ from app.models.event_coordinator import EventCoordinator
 from app.models.event_document import EventDocument
 from app.models.news import News
 from app.models.push_subscription import PushSubscription
+from app.models.payroll import PayrollSettlement, PayrollSettlementItem
 
 __all__ = [
     "Profile", "Company", "User", "UserCompanyMembership",
@@ -25,4 +26,5 @@ __all__ = [
     "PasswordResetToken", "UserDocument",
     "EventCoordinator", "EventDocument",
     "News", "PushSubscription",
+    "PayrollSettlement", "PayrollSettlementItem",
 ]

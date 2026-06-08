@@ -15,7 +15,7 @@ const GREEN      = '#2db84b'
 const GREEN_DARK = '#1e9038'
 
 interface Event {
-  id: number; name: string; event_date: string; start_time: string
+  id: number; name: string; event_code: string | null; event_date: string; start_time: string
   end_time: string | null; address: string; city: string | null
   state: string | null; zip_code: string | null
   dress_code: string | null; status: string
@@ -113,7 +113,7 @@ function DayPanel({ day, year, month, events, myAssignments, onEventClick, onClo
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
                   <div>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: '13.5px', color: '#111827', fontFamily: "'Poppins',sans-serif" }}>{ev.name}</p>
-                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>ID #{ev.id}</p>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{ev.event_code ? `#${ev.event_code}` : `ID #${ev.id}`}</p>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', flexShrink: 0 }}>
                     <StatusPill status={ev.status} map={statusMap} />
