@@ -661,21 +661,48 @@ async def remove_assignment(
     if not assignment or assignment.company_id != company_id:
         raise HTTPException(status_code=404, detail="Asignación no encontrada")
 
+    # Block removal from settled events
+    event = await db.get(Event, assignment.event_id)
+    if event and event.status == "settled":
+        raise HTTPException(status_code=400, detail="No se puede eliminar personal de un evento liquidado")
+
     event_id = assignment.event_id
+    was_approved = assignment.status == "approved"
+    employee_id = assignment.user_id
+
     # Si estaba aprobada, liberar el cupo
-    if assignment.status == "approved":
+    if was_approved:
         result = await db.execute(
             select(EventJobRole).where(
                 EventJobRole.event_id == assignment.event_id,
                 EventJobRole.job_role_id == assignment.job_role_id,
             )
         )
-        ejr = result.scalar_one_or_none()
+        ejr = result.scalars().first()
         if ejr and ejr.slots_filled > 0:
             ejr.slots_filled -= 1
 
     await db.delete(assignment)
     await db.flush()
+
+    # Send WhatsApp to removed employee if they were confirmed
+    if was_approved and event:
+        try:
+            employee = await db.get(User, employee_id)
+            role = await db.get(JobRole, assignment.job_role_id)
+            if employee and employee.phone and role:
+                from app.services.whatsapp_service import send_whatsapp
+                msg = (
+                    f"⚠️ *Has sido removido de un evento*\n\n"
+                    f"📋 *{event.name}*\n"
+                    f"📅 Fecha: {event.event_date.strftime('%Y-%m-%d')}\n"
+                    f"💼 Rol: {role.name}\n\n"
+                    f"El administrador te ha removido de este evento."
+                )
+                send_whatsapp(employee.phone, msg)
+        except Exception as e:
+            print(f"[RemoveAssignment] Error sending WhatsApp: {e}")
+
     # Verificar si el evento debe volver a 'published'
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(event_id, db)

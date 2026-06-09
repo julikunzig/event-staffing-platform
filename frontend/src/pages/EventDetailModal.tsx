@@ -96,6 +96,7 @@ const statusConfig: Record<string, { label: string; bg: string; color: string; b
   filled:         { label: 'Llenado',       bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
   started:        { label: 'Iniciado',      bg: '#fefce8', color: '#854d0e', border: '#fef08a' },
   finished:       { label: 'Finalizado',    bg: '#f0fdfa', color: '#0f766e', border: '#99f6e4' },
+  settled:        { label: 'Liquidado',     bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' },
   cancelled:      { label: 'Cancelado',     bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
 }
 const assignConfig: Record<string, { label: string; bg: string; color: string; border: string }> = {
@@ -169,7 +170,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
         setAssignments(asRes.data)
         const mine = asRes.data.find((a: Assignment) => a.user_id === user?.user_id)
         setMyAssignment(mine || null)
-        if (['started', 'finished'].includes(evRes.data.status)) {
+        if (['started', 'finished', 'settled'].includes(evRes.data.status)) {
           try { const sr = await api.get<EventShift[]>(`/shifts/events/${eventId}/active`); setActiveShifts(sr.data) } catch { setActiveShifts([]) }
         } else { setActiveShifts([]) }
       } else {
@@ -213,19 +214,33 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
     if (next.has(empId)) {
       next.delete(empId)
     } else {
-      // Check if this specific event_job_role has available slots
+      // Find the specific event_job_role
       const er = eventRoles.find(r => r.id === erId)
       if (er) {
-        // Count all employees already selected for this SAME event_job_role
-        const selectedForThisShift = Array.from(next.values()).filter(v => v === erId).length
-        // Also count selected for ANY event_job_role with same job_role_id
-        const sameRoleErs = eventRoles.filter(r => r.job_role_id === er.job_role_id)
-        const totalSlotsForRole = sameRoleErs.reduce((sum, r) => sum + r.slots_required, 0)
-        const totalFilledForRole = sameRoleErs.reduce((sum, r) => sum + r.slots_filled + (r.slots_pending || 0), 0)
-        const totalSelectedForRole = Array.from(next.values()).filter(v => sameRoleErs.some(r => r.id === v)).length
+        // Count total slots and fills for THIS specific event_job_role
+        const alreadySelectedForThisEr = Array.from(next.values()).filter(v => v === erId).length
+        const available = er.slots_required - er.slots_filled - (er.slots_pending || 0) - alreadySelectedForThisEr
         
-        if (totalSelectedForRole + totalFilledForRole >= totalSlotsForRole) {
-          setInviteResult(`⚠️ No hay más cupos disponibles para este rol (${totalFilledForRole + totalSelectedForRole}/${totalSlotsForRole})`)
+        if (available <= 0) {
+          // Try to find another ER of the same job_role_id that has space
+          const emp = employees.find(e => e.id === empId)
+          const matchingErs = eventRoles.filter(r => emp?.roles.some(role => role.id === r.job_role_id))
+          const altEr = matchingErs.find(r => {
+            const selForThis = Array.from(next.values()).filter(v => v === r.id).length
+            return r.slots_required - r.slots_filled - (r.slots_pending || 0) - selForThis > 0
+          })
+          if (altEr) {
+            next.set(empId, altEr.id)
+            setInviteResult('')
+            setSelected(next)
+            return
+          }
+          // Check total across all ERs of same role
+          const sameRoleErs = eventRoles.filter(r => r.job_role_id === er.job_role_id)
+          const totalSlots = sameRoleErs.reduce((sum, r) => sum + r.slots_required, 0)
+          const totalUsed = sameRoleErs.reduce((sum, r) => sum + r.slots_filled + (r.slots_pending || 0), 0)
+          const totalSelected = Array.from(next.values()).filter(v => sameRoleErs.some(r => r.id === v)).length
+          setInviteResult(`⚠️ No hay más cupos disponibles para este rol (${totalUsed + totalSelected}/${totalSlots})`)
           return
         }
       }
@@ -245,14 +260,23 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
       })
       const res = await api.post(`/assignments/events/${eventId}/bulk-invite`, { invitations })
       setInviteResult(`✅ ${res.data.count} empleado(s) invitado(s)`); setSelected(new Map()); await loadData()
+      // Reload eligible employees
+      try {
+        const empRes = await api.get<any[]>(`/events/${eventId}/eligible-employees`)
+        const converted = empRes.data.map((e: any) => ({ id: e.user_id, name: e.name, email: e.email, phone: e.phone, roles: [{ id: e.job_role_id, name: e.job_role_name, hourly_rate: '0' }] }))
+        const byUser = new Map<number, EmployeeWithRoles>()
+        for (const emp of converted) { if (byUser.has(emp.id)) byUser.get(emp.id)!.roles.push(...emp.roles); else byUser.set(emp.id, { ...emp }) }
+        setEmployees(Array.from(byUser.values()))
+      } catch {}
     } catch (e: any) { setInviteResult(`❌ ${parseErrorMessage(e.response?.data?.detail || 'Error')}`) } finally { setActionLoading(false) }
   }
 
   const handleDirectAssign = async () => {
     if (selected.size === 0) return; setActionLoading(true); setInviteResult('')
-    try {
-      let assignedCount = 0
-      for (const [userId, erId] of selected.entries()) {
+    let assignedCount = 0
+    let errors: string[] = []
+    for (const [userId, erId] of selected.entries()) {
+      try {
         const er = eventRoles.find(r => r.id === erId)
         await api.post(`/assignments/events/${eventId}/assign`, {
           user_id: userId,
@@ -260,9 +284,25 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
           event_job_role_id: erId,
         })
         assignedCount++
+      } catch (e: any) {
+        errors.push(e.response?.data?.detail || 'Error')
       }
-      setInviteResult(`✅ ${assignedCount} empleado(s) asignado(s) directamente`); setSelected(new Map()); await loadData()
-    } catch (e: any) { setInviteResult(`❌ ${parseErrorMessage(e.response?.data?.detail || 'Error')}`) } finally { setActionLoading(false) }
+    }
+    if (assignedCount > 0) {
+      setInviteResult(`✅ ${assignedCount} asignado(s)${errors.length > 0 ? ` · ⚠️ ${errors.length} error(es): ${errors[0]}` : ''}`)
+      setSelected(new Map()); await loadData()
+      // Reload eligible employees
+      try {
+        const res = await api.get<any[]>(`/events/${eventId}/eligible-employees`)
+        const converted = res.data.map((e: any) => ({ id: e.user_id, name: e.name, email: e.email, phone: e.phone, roles: [{ id: e.job_role_id, name: e.job_role_name, hourly_rate: '0' }] }))
+        const byUser = new Map<number, EmployeeWithRoles>()
+        for (const emp of converted) { if (byUser.has(emp.id)) byUser.get(emp.id)!.roles.push(...emp.roles); else byUser.set(emp.id, { ...emp }) }
+        setEmployees(Array.from(byUser.values()))
+      } catch {}
+    } else {
+      setInviteResult(`❌ ${errors[0] || 'Error'}`)
+    }
+    setActionLoading(false)
   }
 
   const handlePublish = async () => { setActionLoading(true); setError(''); try { const r = await api.post<Event>(`/events/${eventId}/publish`); setEvent(r.data); onStatusChange?.() } catch (e: any) { setError(e.response?.data?.detail || 'Error') } finally { setActionLoading(false) } }
@@ -329,7 +369,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
   const evSt  = event ? (statusConfig[event.status] || { label: event.status, bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db' }) : null
   const tabs  = [
     { key: 'info' as const, label: 'Información' },
-    ...(isAdminOrCoord(user) && ['started','finished'].includes(event?.status || '') ? [{ key: 'shifts' as const, label: activeShifts.length > 0 ? `Turnos (${activeShifts.length})` : 'Turnos' }] : []),
+    ...(isAdminOrCoord(user) && ['started','finished','settled'].includes(event?.status || '') ? [{ key: 'shifts' as const, label: activeShifts.length > 0 ? `Turnos (${activeShifts.length})` : 'Turnos' }] : []),
     ...(isAdminOrCoord(user) && assignments.length > 0 ? [{ key: 'assignments' as const, label: `Personal (${assignments.length})` }] : []),
   ]
 
@@ -368,7 +408,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
               )}
             </div>
             <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-              {!loading && isAdmin(user) && event?.status !== 'cancelled' && event?.status !== 'finished' && onEdit && (
+              {!loading && isAdmin(user) && event?.status !== 'cancelled' && event?.status !== 'finished' && event?.status !== 'settled' && onEdit && (
                 <button onClick={() => { onClose(); onEdit(eventId) }}
                   style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 12px', borderRadius: '8px', border: `1px solid ${GREEN}`, background: '#f0fdf4', color: GREEN, fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
                   <Pencil size={13} />Editar
@@ -536,7 +576,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                             {t('events.publish')}
                           </button>
                         )}
-                        {!['cancelled','finished'].includes(event.status) && (
+                        {!['cancelled','finished','settled'].includes(event.status) && (
                           <>
                             <button onClick={handleCancel} disabled={actionLoading}
                               style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
@@ -570,11 +610,17 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                             {filteredEmployees.map(emp => {
                               // Find matching eventRoles for this employee's roles
                               const matchingEventRoles = eventRoles.filter(er => emp.roles.some(r => r.id === er.job_role_id))
-                              // Check if ANY matching role has available slots
-                              const anyAvailable = matchingEventRoles.some(er => (er.slots_filled + (er.slots_pending || 0)) < er.slots_required)
+                              // Check if ANY matching role has available slots (considering current selections)
+                              const anyAvailable = matchingEventRoles.some(er => {
+                                const selForThis = Array.from(selected.values()).filter(v => v === er.id).length
+                                return (er.slots_required - er.slots_filled - (er.slots_pending || 0) - selForThis) > 0
+                              })
                               const full = !anyAvailable
                               // Find first available event role for default selection
-                              const firstAvailableEr = matchingEventRoles.find(er => (er.slots_filled + (er.slots_pending || 0)) < er.slots_required) || matchingEventRoles[0]
+                              const firstAvailableEr = matchingEventRoles.find(er => {
+                                const selForThis = Array.from(selected.values()).filter(v => v === er.id).length
+                                return (er.slots_required - er.slots_filled - (er.slots_pending || 0) - selForThis) > 0
+                              }) || matchingEventRoles[0]
                               return (
                                 <div key={emp.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', borderBottom: '1px solid #f3f4f6', opacity: full && !selected.has(emp.id) ? 0.5 : 1 }}>
                                   <input type="checkbox" checked={selected.has(emp.id)} disabled={full && !selected.has(emp.id)}
@@ -685,7 +731,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                         <Pill status={a.status} map={assignConfig} />
-                        {isAdmin(user) && (
+                        {isAdmin(user) && event?.status !== 'settled' && (
                           <>
                             {a.status === 'pending' && <button onClick={() => handleApprove(a.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: GREEN, color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>{t('common.confirm')}</button>}
                             {!['removed','rejected'].includes(a.status) && <button onClick={() => handleRemove(a.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>{t('common.delete')}</button>}

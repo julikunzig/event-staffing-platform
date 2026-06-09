@@ -352,8 +352,8 @@ async def update_event(
     event = await db.get(Event, event_id)
     if not event or event.company_id != company_id:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
-    if event.status in ("cancelled", "finished"):
-        raise HTTPException(status_code=400, detail="No se puede editar un evento cancelado o finalizado")
+    if event.status in ("cancelled", "finished", "settled"):
+        raise HTTPException(status_code=400, detail="No se puede editar un evento cancelado, finalizado o liquidado")
 
     update_data = body.model_dump(exclude_none=True)
 

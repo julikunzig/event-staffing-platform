@@ -31,6 +31,7 @@ function getEventStatusMap(t: any) {
     filled:         { label: t('events.status.filled'),    shortLabel: t('events.status.filled'),    bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', dot: GREEN },
     started:        { label: t('events.status.started'),   shortLabel: t('events.status.started'),   bg: '#fefce8', color: '#854d0e', border: '#fef08a', dot: '#eab308' },
     finished:       { label: t('events.status.finished'),  shortLabel: t('events.status.finished'),  bg: '#f0fdfa', color: '#0f766e', border: '#99f6e4', dot: '#0d9488' },
+    settled:        { label: t('events.status.settled') || 'Liquidado', shortLabel: t('events.status.settled') || 'Liquidado', bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', dot: '#3b82f6' },
     cancelled:      { label: t('events.status.cancelled'), shortLabel: t('events.status.cancelled'), bg: '#fef2f2', color: '#dc2626', border: '#fecaca', dot: '#ef4444' },
   }
 }
@@ -648,6 +649,7 @@ export default function EventsPage() {
 
                         </div>
                         <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#9ca3af' }}>
+                          {event.event_code && <span style={{ color: '#1d4ed8', fontWeight: 600 }}>#{event.event_code} · </span>}
                           {new Date(event.event_date + 'T00:00:00').toLocaleDateString(lang === 'en' ? 'en-US' : 'es', { year: 'numeric', month: 'short', day: 'numeric' })}
                         </p>
                       </div>

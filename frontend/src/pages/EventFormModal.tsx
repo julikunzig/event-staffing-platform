@@ -302,6 +302,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
     filled:         { bg: '#f0fdf4', color: '#15803d' },
     started:        { bg: '#fefce8', color: '#854d0e' },
     finished:       { bg: '#f0fdfa', color: '#0f766e' },
+    settled:        { bg: '#eff6ff', color: '#1d4ed8' },
     cancelled:      { bg: '#fef2f2', color: '#dc2626' },
   }
 
@@ -694,8 +695,8 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
 
             {/* Footer */}
             <div style={{ display: 'flex', gap: '8px', padding: '14px 20px', borderTop: '1px solid #f3f4f6', background: '#fafafa', flexShrink: 0 }}>
-              <button type="submit" disabled={saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', borderRadius: '10px', border: 'none', background: (saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))) ? '#9ca3af' : `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: (saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))) ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif", boxShadow: (saving || (mode === 'edit' && ['finished', 'cancelled'].includes(eventStatus))) ? 'none' : '0 2px 8px rgba(45,184,75,0.25)', transition: 'all 0.2s' }}>
+              <button type="submit" disabled={saving || (mode === 'edit' && ['finished', 'cancelled', 'settled'].includes(eventStatus))}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', borderRadius: '10px', border: 'none', background: (saving || (mode === 'edit' && ['finished', 'cancelled', 'settled'].includes(eventStatus))) ? '#9ca3af' : `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: (saving || (mode === 'edit' && ['finished', 'cancelled', 'settled'].includes(eventStatus))) ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif", boxShadow: (saving || (mode === 'edit' && ['finished', 'cancelled', 'settled'].includes(eventStatus))) ? 'none' : '0 2px 8px rgba(45,184,75,0.25)', transition: 'all 0.2s' }}>
                 {saving ? <><RefreshCw size={14} style={{ animation: 'spin 0.7s linear infinite' }} />{t('common.loading')}</> : mode === 'create' ? <><Plus size={14} />{t('forms.createEvent')}</> : <><Save size={14} />{t('common.save')}</>}
               </button>
               <button type="button" onClick={onClose}

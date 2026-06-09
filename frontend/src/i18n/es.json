@@ -157,6 +157,7 @@
       "filledPending": "Llenado Pendiente",
       "started": "Iniciado",
       "finished": "Finalizado",
+      "settled": "Liquidado",
       "cancelled": "Cancelado"
     },
     "assignmentStatus": {
