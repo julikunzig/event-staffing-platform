@@ -209,42 +209,34 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
     return e.name.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || (e.phone || '').includes(q)
   })
 
-  const toggleEmployee = (empId: number, erId: number) => {
+  const toggleEmployee = (empId: number, _erId: number) => {
+    console.log('[toggleEmployee] empId=', empId, 'selected size=', selected.size)
     const next = new Map(selected)
     if (next.has(empId)) {
       next.delete(empId)
     } else {
-      // Find the specific event_job_role
-      const er = eventRoles.find(r => r.id === erId)
-      if (er) {
-        // Count total slots and fills for THIS specific event_job_role
-        const alreadySelectedForThisEr = Array.from(next.values()).filter(v => v === erId).length
-        const available = er.slots_required - er.slots_filled - (er.slots_pending || 0) - alreadySelectedForThisEr
-        
-        if (available <= 0) {
-          // Try to find another ER of the same job_role_id that has space
-          const emp = employees.find(e => e.id === empId)
-          const matchingErs = eventRoles.filter(r => emp?.roles.some(role => role.id === r.job_role_id))
-          const altEr = matchingErs.find(r => {
-            const selForThis = Array.from(next.values()).filter(v => v === r.id).length
-            return r.slots_required - r.slots_filled - (r.slots_pending || 0) - selForThis > 0
-          })
-          if (altEr) {
-            next.set(empId, altEr.id)
-            setInviteResult('')
-            setSelected(next)
-            return
-          }
-          // Check total across all ERs of same role
-          const sameRoleErs = eventRoles.filter(r => r.job_role_id === er.job_role_id)
-          const totalSlots = sameRoleErs.reduce((sum, r) => sum + r.slots_required, 0)
-          const totalUsed = sameRoleErs.reduce((sum, r) => sum + r.slots_filled + (r.slots_pending || 0), 0)
-          const totalSelected = Array.from(next.values()).filter(v => sameRoleErs.some(r => r.id === v)).length
-          setInviteResult(`⚠️ No hay más cupos disponibles para este rol (${totalUsed + totalSelected}/${totalSlots})`)
-          return
-        }
+      // Always calculate the correct ER internally based on current selections
+      const emp = employees.find(e => e.id === empId)
+      if (!emp) return
+      const matchingErs = eventRoles.filter(r => emp.roles.some(role => role.id === r.job_role_id))
+      
+      // Find first ER that has available slots considering current selections + already filled
+      const availableEr = matchingErs.find(r => {
+        const selForThis = Array.from(next.values()).filter(v => v === r.id).length
+        return r.slots_required - r.slots_filled - (r.slots_pending || 0) - selForThis > 0
+      })
+      
+      if (!availableEr) {
+        // No slots available for any matching ER
+        const sameRoleErs = matchingErs
+        const totalSlots = sameRoleErs.reduce((sum, r) => sum + r.slots_required, 0)
+        const totalUsed = sameRoleErs.reduce((sum, r) => sum + r.slots_filled + (r.slots_pending || 0), 0)
+        const totalSelected = Array.from(next.values()).filter(v => sameRoleErs.some(r => r.id === v)).length
+        setInviteResult(`⚠️ No hay más cupos disponibles para este rol (${totalUsed + totalSelected}/${totalSlots})`)
+        return
       }
-      next.set(empId, erId)
+      
+      next.set(empId, availableEr.id)
       setInviteResult('')
     }
     setSelected(next)
@@ -636,14 +628,27 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
                                       ))}
                                     </div>
                                     {selected.has(emp.id) && matchingEventRoles.length > 0 && (
-                                      <select value={selected.get(emp.id)} onChange={e => { const n = new Map(selected); n.set(emp.id, Number(e.target.value)); setSelected(n) }}
+                                      <select value={selected.get(emp.id)} onChange={e => {
+                                        const newErId = Number(e.target.value)
+                                        // Validate the target ER has available slots
+                                        const targetEr = eventRoles.find(r => r.id === newErId)
+                                        if (targetEr) {
+                                          const othersOnThisEr = Array.from(selected.entries()).filter(([uid, eid]) => eid === newErId && uid !== emp.id).length
+                                          if (othersOnThisEr + targetEr.slots_filled + (targetEr.slots_pending || 0) >= targetEr.slots_required) {
+                                            setInviteResult(`⚠️ Este turno ya está lleno`)
+                                            return
+                                          }
+                                        }
+                                        const n = new Map(selected); n.set(emp.id, newErId); setSelected(n); setInviteResult('')
+                                      }}
                                         style={{ marginTop: '4px', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '3px 6px', fontSize: '11px', width: '100%' }}>
                                         {matchingEventRoles.map(er => {
                                           const roleName = jobRoles.find(r => r.id === er.job_role_id)?.name || `Rol #${er.job_role_id}`
                                           const timeStr = er.start_time ? er.start_time.substring(0, 5) : ''
                                           const rateStr = er.hourly_rate_override ? `$${parseFloat(er.hourly_rate_override).toFixed(0)}` : ''
-                                          const fl = (er.slots_filled + (er.slots_pending || 0)) >= er.slots_required
-                                          return <option key={er.id} value={er.id} disabled={fl}>{roleName}{timeStr ? ` · ${timeStr}` : ''}{rateStr ? ` · ${rateStr}/h` : ''} ({er.slots_filled}/{er.slots_required}){fl ? ' — LLENO' : ''}</option>
+                                          const othersSelected = Array.from(selected.entries()).filter(([uid, eid]) => eid === er.id && uid !== emp.id).length
+                                          const fl = (er.slots_filled + (er.slots_pending || 0) + othersSelected) >= er.slots_required
+                                          return <option key={er.id} value={er.id} disabled={fl}>{roleName}{timeStr ? ` · ${timeStr}` : ''}{rateStr ? ` · ${rateStr}/h` : ''} ({er.slots_filled + othersSelected}/{er.slots_required}){fl ? ' — LLENO' : ''}</option>
                                         })}
                                       </select>
                                     )}

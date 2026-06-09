@@ -325,6 +325,13 @@ async def direct_assign(
 
     ejr = await _check_slots(event_id, body.job_role_id, db)
 
+    # Use specific event_job_role if provided
+    specific_ejr = None
+    if body.event_job_role_id:
+        specific_ejr = await db.get(EventJobRole, body.event_job_role_id)
+    if not specific_ejr:
+        specific_ejr = ejr
+
     assignment = EventAssignment(
         event_id=event_id,
         user_id=body.user_id,
@@ -335,7 +342,7 @@ async def direct_assign(
         assigned_by=admin_id,
     )
     db.add(assignment)
-    ejr.slots_filled += 1
+    specific_ejr.slots_filled += 1
     await db.flush()
     await db.refresh(assignment)
     from app.services.event_status import check_and_update_event_status
