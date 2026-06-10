@@ -84,3 +84,4 @@ FIX_*.md
 GUIA_*.md
 PROXIMO_*.md
 design-previews/
+.env
