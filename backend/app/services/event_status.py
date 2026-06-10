@@ -14,7 +14,7 @@ from app.models import Event, EventJobRole, EventAssignment
 
 async def check_and_update_event_status(event_id: int, db: AsyncSession) -> None:
     event = await db.get(Event, event_id)
-    if not event or event.status not in ("published", "filled_pending", "filled"):
+    if not event or event.status not in ("created", "published", "filled_pending", "filled"):
         return
     roles_result = await db.execute(
         select(EventJobRole).where(EventJobRole.event_id == event_id)

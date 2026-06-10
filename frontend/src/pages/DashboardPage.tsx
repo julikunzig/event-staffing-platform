@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { CalendarDays, Users, Briefcase, BarChart2, Building2, UserCircle, Newspaper, ArrowRight, Settings, TrendingUp, Clock, DollarSign, Activity, ChevronUp, ChevronDown, Minus } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import api from '@/lib/api'
+import WhatsAppConnectBanner from '@/components/WhatsAppConnectBanner'
 
 const GREEN      = '#2db84b'
 const GREEN_DARK = '#1e9038'
@@ -295,6 +296,9 @@ export default function DashboardPage() {
         </div>
         <div style={{ height: '3px', background: `linear-gradient(90deg, ${GREEN_DARK}, ${GREEN}, transparent)` }} />
       </div>
+
+      {/* ══ WHATSAPP CONNECT ════════════════════════════════════════════════ */}
+      <WhatsAppConnectBanner />
 
       {/* ══ TABS ════════════════════════════════════════════════════════════ */}
       {showCharts && <div style={{ display: 'flex', gap: '4px', marginBottom: '1.5rem', background: '#f3f4f6', borderRadius: '12px', padding: '4px', width: 'fit-content' }}>

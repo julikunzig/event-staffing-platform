@@ -624,7 +624,7 @@ async def approve_assignment(
         raise HTTPException(status_code=400, detail="Rol no encontrado en el evento")
 
     assignment.status = "approved"
-    ejr.slots_filled += 1
+    # Don't manually increment slots_filled - check_and_update_event_status will sync it
     await db.flush()
     
     # Send confirmation email to employee
@@ -1026,7 +1026,7 @@ async def accept_invitation(
         raise HTTPException(status_code=400, detail="Rol no encontrado en el evento")
 
     assignment.status = "approved"
-    ejr.slots_filled += 1
+    # Don't manually increment slots_filled - check_and_update_event_status will sync it
     await db.flush()
     
     # Send notification email to admin about acceptance
