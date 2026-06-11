@@ -6,7 +6,7 @@ import { isAdmin } from '@/lib/auth'
 import api from '@/lib/api'
 
 import { Input } from '@/components/ui/input'
-import { Plus, MapPin, Clock, Shirt, Pencil, Calendar, List, Search, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Plus, MapPin, Clock, Shirt, Pencil, Calendar, List, Search, ChevronLeft, ChevronRight, X, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import EventFormModal from '@/pages/EventFormModal'
 import EventDetailModal from '@/pages/EventDetailModal'
@@ -303,6 +303,7 @@ export default function EventsPage() {
   const [events, setEvents]             = useState<Event[]>([])
   const [myAssignments, setMyAssignments] = useState<Assignment[]>([])
   const [loading, setLoading]           = useState(true)
+  const [refreshing, setRefreshing]     = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
   const [searchText, setSearchText]     = useState('')
   const [searchInput, setSearchInput]   = useState('')
@@ -320,8 +321,8 @@ export default function EventsPage() {
   const EVENT_STATUS  = getEventStatusMap(t)
   const ASSIGN_STATUS = getAssignStatusMap(t)
 
-  const fetchEvents = async (status: string, search: string) => {
-    setLoading(true)
+  const fetchEvents = async (status: string, search: string, opts?: { silent?: boolean }): Promise<Event[]> => {
+    if (opts?.silent) setRefreshing(true); else setLoading(true)
     try {
       const params = new URLSearchParams()
       if (status) params.set('status', status)
@@ -334,8 +335,25 @@ export default function EventsPage() {
       setEvents(evRes.data)
       setMyAssignments((asRes as any).data)
       setCurrentPage(1)
-    } catch (e) { console.error(e) }
-    finally { setLoading(false) }
+      return evRes.data
+    } catch (e) { console.error(e); return [] }
+    finally { if (opts?.silent) setRefreshing(false); else setLoading(false) }
+  }
+
+  // Recarga manual desde el botón, conservando filtros y sin parpadeo de "cargando".
+  const handleRefresh = () => { fetchEvents(statusFilter, searchText, { silent: true }) }
+
+  // Tras crear un evento: si con los filtros actuales no aparece (p.ej. hay un
+  // filtro de estado que el evento nuevo 'created' no cumple), se limpian para
+  // que el evento recién creado sea visible.
+  const handleCreated = async () => {
+    setShowCreate(false)
+    const list = await fetchEvents(statusFilter, searchText)
+    if (statusFilter || searchText) {
+      // Con filtros activos puede que el evento nuevo no caiga en la vista: limpiarlos.
+      setStatusFilter(''); setSearchText(''); setSearchInput('')
+      // El useEffect re-disparará fetchEvents al limpiar los filtros.
+    }
   }
 
   useEffect(() => { fetchEvents(statusFilter, searchText) }, [statusFilter, searchText])
@@ -344,7 +362,7 @@ export default function EventsPage() {
   const clearSearch  = () => { setSearchInput(''); setSearchText('') }
 
   const statusFilters = isAdmin(user)
-    ? ['', 'created', 'published', 'filled_pending', 'filled', 'started', 'finished', 'cancelled']
+    ? ['', 'created', 'published', 'filled_pending', 'filled', 'started', 'finished', 'settled', 'cancelled']
     : ['', 'published', 'filled_pending', 'filled', 'started', 'finished']
 
   // ── Filtrado por fecha ──
@@ -472,6 +490,10 @@ export default function EventsPage() {
               </button>
             
           )}
+          <button onClick={handleRefresh} disabled={refreshing} title={t('events.refresh')}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', borderRadius: '10px', border: '1px solid #e5e7eb', background: '#fff', cursor: refreshing ? 'default' : 'pointer', color: '#6b7280', flexShrink: 0 }}>
+            <RefreshCw size={16} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }} />
+          </button>
         </div>
       </div>
 
@@ -706,7 +728,7 @@ export default function EventsPage() {
 
       {showCreate && (
         <EventFormModal mode="create" onClose={() => setShowCreate(false)}
-          onSuccess={() => { setShowCreate(false); fetchEvents(statusFilter, searchText) }} />
+          onSuccess={handleCreated} />
       )}
       {editEventId !== null && (
         <EventFormModal mode="edit" eventId={editEventId} onClose={() => setEditEventId(null)}

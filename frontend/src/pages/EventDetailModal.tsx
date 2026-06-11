@@ -126,6 +126,485 @@ interface Props {
   onStatusChange?: () => void
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// ── Panel de cierre de evento por turnos (dentro del modal de detalle) ──────
+// ════════════════════════════════════════════════════════════════════════════
+
+interface ClosingEmployee {
+  assignment_id: number; shift_id: number | null
+  user_id: number; user_name: string; job_role_name: string
+  turno_start: string
+  clock_in: string | null; clock_out: string | null
+  is_paused: boolean; total_pause_minutes: string
+  hours_worked: string | null; hourly_rate_snapshot: string | null; total_pay: string | null
+}
+interface ClosingTurno {
+  turno_start: string; total: number; sin_entrada: number; sin_salida: number
+  employees: ClosingEmployee[]
+}
+interface ClosingSummary {
+  event_id: number; event_name: string; event_date: string; event_status: string
+  turnos: ClosingTurno[]
+  total_employees: number; total_sin_entrada: number; total_sin_salida: number
+  ready_to_finish: boolean
+}
+interface ClosingOperation {
+  action: 'set_clock_in' | 'set_clock_out' | 'adjust_hours'
+  scope: 'event' | 'turno' | 'targets'
+  turno_start?: string; shift_ids?: number[]; assignment_ids?: number[]
+  time?: string; delta_hours?: number
+}
+interface OperationResult {
+  action: string; scope: string; detail: string
+  affected: number; skipped: number; employees: string[]; notes: string[]
+}
+interface BulkResponse {
+  results: OperationResult[]
+  total_employees: number; total_sin_entrada: number; total_sin_salida: number
+  ready_to_finish: boolean
+}
+
+const closingField: React.CSSProperties = {
+  height: '32px', background: '#f9fafb', border: '1.5px solid #e5e7eb',
+  color: '#111827', borderRadius: '8px', fontSize: '13px',
+  padding: '0 10px', outline: 'none', fontFamily: "'Poppins',sans-serif",
+}
+const closingLabel: React.CSSProperties = {
+  fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
+  color: '#6b7280', display: 'block', marginBottom: '4px',
+}
+
+function EventClosingPanel({ eventId, eventStatus, onChanged }: {
+  eventId: number; eventStatus: string; onChanged: () => void
+}) {
+  const { t } = useTranslation()
+  const [summary, setSummary] = useState<ClosingSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [finishing, setFinishing] = useState(false)
+  const [saveResult, setSaveResult] = useState<BulkResponse | null>(null)
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void; danger?: boolean } | null>(null)
+
+  const [globalIn, setGlobalIn] = useState('')
+  const [globalOut, setGlobalOut] = useState('')
+  const [turnoIn, setTurnoIn] = useState<Record<string, string>>({})
+  const [turnoOut, setTurnoOut] = useState<Record<string, string>>({})
+  const [rowIn, setRowIn] = useState<Record<number, string>>({})
+  const [rowOut, setRowOut] = useState<Record<number, string>>({})
+  const [rowDelta, setRowDelta] = useState<Record<number, number>>({})
+  // Filas que el usuario tocó a mano: solo estas se envían como ops individuales,
+  // para que no compitan con las acciones globales/por turno.
+  const [touchedIn, setTouchedIn] = useState<Set<number>>(new Set())
+  const [touchedOut, setTouchedOut] = useState<Set<number>>(new Set())
+
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [selIn, setSelIn] = useState('')
+  const [selOut, setSelOut] = useState('')
+  const [selDelta, setSelDelta] = useState(0)
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const extractHHMM = (iso: string | null): string => {
+    if (!iso) return ''
+    const m = iso.match(/T(\d{2}):(\d{2})/)
+    return m ? `${m[1]}:${m[2]}` : ''
+  }
+
+  const resetEdits = () => {
+    setGlobalIn(''); setGlobalOut(''); setTurnoIn({}); setTurnoOut({})
+    setRowIn({}); setRowOut({}); setRowDelta({})
+    setTouchedIn(new Set()); setTouchedOut(new Set())
+    setSelected(new Set()); setSelIn(''); setSelOut(''); setSelDelta(0)
+  }
+
+  const load = async () => {
+    setLoading(true); setError('')
+    try {
+      const res = await api.get<ClosingSummary>(`/shifts/events/${eventId}/closing-summary`)
+      setSummary(res.data)
+      const ins: Record<number, string> = {}
+      const outs: Record<number, string> = {}
+      for (const turno of res.data.turnos) {
+        for (const emp of turno.employees) {
+          if (emp.clock_in) ins[emp.assignment_id] = extractHHMM(emp.clock_in)
+          if (emp.clock_out) outs[emp.assignment_id] = extractHHMM(emp.clock_out)
+        }
+      }
+      setRowIn(ins); setRowOut(outs); setRowDelta({})
+      setTouchedIn(new Set()); setTouchedOut(new Set())
+      // Acordeones cerrados por defecto para reducir scroll.
+      setExpanded(new Set())
+    } catch (e: any) {
+      setError(e.response?.data?.detail || t('eventClosing.errorLoading'))
+      setSummary(null)
+    } finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [eventId])
+
+  const originals = React.useMemo(() => {
+    const map: Record<number, { in: string; out: string }> = {}
+    if (!summary) return map
+    for (const turno of summary.turnos) {
+      for (const emp of turno.employees) {
+        map[emp.assignment_id] = { in: extractHHMM(emp.clock_in), out: extractHHMM(emp.clock_out) }
+      }
+    }
+    return map
+  }, [summary])
+
+  // Horas trabajadas actuales por empleado (tope para poder restar con el stepper).
+  const maxSubtract = React.useMemo(() => {
+    const map: Record<number, number> = {}
+    if (!summary) return map
+    for (const turno of summary.turnos) {
+      for (const emp of turno.employees) {
+        map[emp.assignment_id] = emp.hours_worked ? parseFloat(emp.hours_worked) : 0
+      }
+    }
+    return map
+  }, [summary])
+
+  const buildOperations = (): ClosingOperation[] => {
+    const ops: ClosingOperation[] = []
+    if (globalIn) ops.push({ action: 'set_clock_in', scope: 'event', time: globalIn })
+    if (globalOut) ops.push({ action: 'set_clock_out', scope: 'event', time: globalOut })
+    if (summary) {
+      for (const turno of summary.turnos) {
+        const key = turno.turno_start
+        if (turnoIn[key]) ops.push({ action: 'set_clock_in', scope: 'turno', turno_start: key, time: turnoIn[key] })
+        if (turnoOut[key]) ops.push({ action: 'set_clock_out', scope: 'turno', turno_start: key, time: turnoOut[key] })
+      }
+      for (const turno of summary.turnos) {
+        for (const emp of turno.employees) {
+          const aid = emp.assignment_id
+          // Solo se envían las filas que el usuario tocó a mano; las precargadas
+          // no compiten contra las acciones globales/por turno.
+          if (touchedIn.has(aid) && rowIn[aid]) ops.push({ action: 'set_clock_in', scope: 'targets', assignment_ids: [aid], time: rowIn[aid] })
+          if (touchedOut.has(aid) && rowOut[aid]) ops.push({ action: 'set_clock_out', scope: 'targets', assignment_ids: [aid], time: rowOut[aid] })
+          if (rowDelta[aid]) ops.push({ action: 'adjust_hours', scope: 'targets', assignment_ids: [aid], delta_hours: rowDelta[aid] })
+        }
+      }
+    }
+    return ops
+  }
+
+  const pendingOpsCount = React.useMemo(() => buildOperations().length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [globalIn, globalOut, turnoIn, turnoOut, rowIn, rowOut, rowDelta, touchedIn, touchedOut, summary])
+
+  const handleSave = async () => {
+    const ops = buildOperations()
+    if (ops.length === 0) { setError(t('eventClosing.noChanges')); return }
+    setSaving(true); setError(''); setSaveResult(null)
+    try {
+      const res = await api.post<BulkResponse>(`/shifts/events/${eventId}/bulk-update`, { operations: ops })
+      setSaveResult(res.data)
+      resetEdits()
+      // Reflejar los contadores nuevos de inmediato para habilitar "Finalizar"
+      // sin esperar al reload (que llega justo después y trae el detalle completo).
+      setSummary(prev => prev ? {
+        ...prev,
+        total_employees: res.data.total_employees,
+        total_sin_entrada: res.data.total_sin_entrada,
+        total_sin_salida: res.data.total_sin_salida,
+        ready_to_finish: res.data.ready_to_finish,
+      } : prev)
+      await load()
+      onChanged()
+    } catch (e: any) {
+      setError(e.response?.data?.detail || t('eventClosing.errorSaving'))
+    } finally { setSaving(false) }
+  }
+
+  const doFinish = async () => {
+    setFinishing(true); setError('')
+    try {
+      await api.post(`/events/${eventId}/finish`)
+      await load()
+      onChanged()
+    } catch (e: any) {
+      setError(e.response?.data?.detail || t('eventClosing.errorFinishing'))
+    } finally { setFinishing(false) }
+  }
+
+  const handleFinish = () => {
+    setConfirm({
+      title: t('eventClosing.finishConfirmTitle'),
+      message: t('eventClosing.finishConfirmMsg'),
+      danger: false,
+      onConfirm: () => { setConfirm(null); doFinish() },
+    })
+  }
+
+  const toggleSelected = (aid: number) => {
+    setSelected(prev => { const n = new Set(prev); n.has(aid) ? n.delete(aid) : n.add(aid); return n })
+  }
+  const toggleTurnoSelection = (turno: ClosingTurno) => {
+    setSelected(prev => {
+      const n = new Set(prev)
+      const allIn = turno.employees.every(e => n.has(e.assignment_id))
+      for (const e of turno.employees) { allIn ? n.delete(e.assignment_id) : n.add(e.assignment_id) }
+      return n
+    })
+  }
+  const applyToSelected = () => {
+    if (selected.size === 0) return
+    if (selIn) { setRowIn(prev => { const n = { ...prev }; selected.forEach(aid => { n[aid] = selIn }); return n }); setTouchedIn(prev => { const n = new Set(prev); selected.forEach(aid => n.add(aid)); return n }) }
+    if (selOut) { setRowOut(prev => { const n = { ...prev }; selected.forEach(aid => { n[aid] = selOut }); return n }); setTouchedOut(prev => { const n = new Set(prev); selected.forEach(aid => n.add(aid)); return n }) }
+    if (selDelta) setRowDelta(prev => {
+      const n = { ...prev }
+      selected.forEach(aid => {
+        const cap = maxSubtract[aid] || 0
+        let v = Math.round(((n[aid] || 0) + selDelta) * 2) / 2
+        if (v < 0 && Math.abs(v) > cap) v = -cap   // no restar más de lo trabajado
+        if (v === 0) delete n[aid]; else n[aid] = v
+      })
+      return n
+    })
+    setSelIn(''); setSelOut(''); setSelDelta(0)
+  }
+  const stepDelta = (aid: number, step: number) => {
+    setRowDelta(prev => {
+      const n = { ...prev }
+      const cap = maxSubtract[aid] || 0
+      let v = Math.round(((n[aid] || 0) + step) * 2) / 2
+      // No se puede restar más de las horas trabajadas.
+      if (v < 0 && Math.abs(v) > cap) v = -cap
+      if (v === 0) delete n[aid]; else n[aid] = v
+      return n
+    })
+  }
+  const toggleExpanded = (key: string) => {
+    setExpanded(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+  }
+
+  // 'locked' bloquea TODA edición: solo cuando el evento está liquidado (settled).
+  // En 'finished' aún se permiten ajustes de horas.
+  const locked = summary?.event_status === 'settled' || eventStatus === 'settled'
+  // 'isFinished' controla únicamente la visibilidad del botón Finalizar.
+  const isFinished = summary?.event_status === 'finished' || eventStatus === 'finished' || locked
+
+  if (loading) return <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center', padding: '2rem' }}>{t('common.loading')}</p>
+  if (!summary) return <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center', padding: '1rem' }}>{error || t('eventClosing.errorLoading')}</p>
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {confirm && (
+        <ConfirmDialog title={confirm.title} message={confirm.message} danger={confirm.danger}
+          onConfirm={confirm.onConfirm} onCancel={() => setConfirm(null)} />
+      )}
+
+      {error && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', fontSize: '13px' }}>⚠ {error}</div>
+      )}
+
+      {/* Barra de estado + finalizar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: '#f3f4f6', color: '#374151' }}>
+          {summary.total_employees} {t('eventClosing.employees')}
+        </span>
+        <span style={{ fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: summary.total_sin_entrada > 0 ? '#fff7ed' : '#f0fdf4', color: summary.total_sin_entrada > 0 ? '#c2410c' : '#15803d' }}>
+          {summary.total_sin_entrada} {t('eventClosing.withoutClockIn')}
+        </span>
+        <span style={{ fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '999px', background: summary.total_sin_salida > 0 ? '#fef2f2' : '#f0fdf4', color: summary.total_sin_salida > 0 ? '#dc2626' : '#15803d' }}>
+          {summary.total_sin_salida} {t('eventClosing.withoutClockOut')}
+        </span>
+        <div style={{ flex: 1 }} />
+        {!isFinished ? (
+          <button onClick={handleFinish} disabled={!summary.ready_to_finish || finishing}
+            title={!summary.ready_to_finish ? t('eventClosing.finishBlocked') : ''}
+            style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 16px', borderRadius: '8px', border: 'none', background: summary.ready_to_finish ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#e5e7eb', color: summary.ready_to_finish ? '#fff' : '#9ca3af', fontSize: '12px', fontWeight: 700, cursor: summary.ready_to_finish ? 'pointer' : 'not-allowed', fontFamily: "'Poppins',sans-serif" }}>
+            {finishing ? t('eventClosing.finishing') : t('eventClosing.finishEvent')}
+          </button>
+        ) : (
+          <span style={{ fontSize: '12px', fontWeight: 700, color: '#0f766e' }}>✓ {t('eventClosing.eventFinished')}</span>
+        )}
+      </div>
+
+      {/* Resumen post-guardado */}
+      {saveResult && (
+        <div style={{ background: '#fff', border: '1px solid #bbf7d0', borderRadius: '10px', overflow: 'hidden' }}>
+          <div style={{ height: '2px', background: `linear-gradient(90deg,${GREEN_DARK},${GREEN})` }} />
+          <div style={{ padding: '12px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#15803d' }}>✓ {t('eventClosing.changesApplied')}</p>
+              <button onClick={() => setSaveResult(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', padding: '2px' }}><X size={14} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {saveResult.results.map((r, i) => (
+                <div key={i} style={{ fontSize: '12px', color: '#374151' }}>
+                  <span style={{ fontWeight: 600 }}>✓ {r.detail}</span>
+                  <span style={{ color: '#9ca3af' }}> — {r.affected} {t('eventClosing.affected')}{r.skipped > 0 ? ` · ${r.skipped} ${t('eventClosing.skipped')}` : ''}</span>
+                  {r.notes.map((n, j) => <p key={j} style={{ margin: '2px 0 0 14px', fontSize: '11px', color: '#c2410c' }}>⚠ {n}</p>)}
+                </div>
+              ))}
+            </div>
+            {saveResult.ready_to_finish && !isFinished && (
+              <p style={{ margin: '10px 0 0', fontSize: '12px', fontWeight: 600, color: '#15803d' }}>{t('eventClosing.allClosedHint')}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!locked && (
+        <>
+          {/* Acciones globales */}
+          <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '12px 14px' }}>
+            <p style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: 700, color: '#111827' }}>{t('eventClosing.globalActions')}</p>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={closingLabel}>{t('eventClosing.clockInAll')}</label>
+                <input type="time" value={globalIn} onChange={e => setGlobalIn(e.target.value)} style={{ ...closingField, width: '140px' }} />
+              </div>
+              <div>
+                <label style={closingLabel}>{t('eventClosing.clockOutAll')}</label>
+                <input type="time" value={globalOut} onChange={e => setGlobalOut(e.target.value)} style={{ ...closingField, width: '140px' }} />
+              </div>
+            </div>
+            <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#9ca3af' }}>{t('eventClosing.globalHint')}</p>
+          </div>
+
+          {/* Barra de seleccionados */}
+          {selected.size > 0 && (
+            <div style={{ background: '#fff', border: `1.5px solid ${GREEN}`, borderRadius: '10px', padding: '10px 14px', display: 'flex', gap: '10px', alignItems: 'end', flexWrap: 'wrap' }}>
+              <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: GREEN_DARK, alignSelf: 'center' }}>{selected.size} {t('eventClosing.selectedCount')}</p>
+              <div>
+                <label style={closingLabel}>{t('eventClosing.clockInTime')}</label>
+                <input type="time" value={selIn} onChange={e => setSelIn(e.target.value)} style={{ ...closingField, width: '132px' }} />
+              </div>
+              <div>
+                <label style={closingLabel}>{t('eventClosing.clockOutTime')}</label>
+                <input type="time" value={selOut} onChange={e => setSelOut(e.target.value)} style={{ ...closingField, width: '132px' }} />
+              </div>
+              <div>
+                <label style={closingLabel}>{t('eventClosing.hoursDelta')}</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <button onClick={() => setSelDelta(d => Math.round((d - 0.5) * 2) / 2)} style={{ width: '26px', height: '26px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}>−</button>
+                  <span style={{ fontSize: '12px', fontWeight: 700, minWidth: '42px', textAlign: 'center', color: selDelta > 0 ? '#15803d' : selDelta < 0 ? '#dc2626' : '#6b7280' }}>{selDelta > 0 ? '+' : ''}{selDelta}h</span>
+                  <button onClick={() => setSelDelta(d => Math.round((d + 0.5) * 2) / 2)} style={{ width: '26px', height: '26px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}>+</button>
+                </div>
+              </div>
+              <button onClick={applyToSelected} disabled={!selIn && !selOut && !selDelta}
+                style={{ padding: '7px 14px', borderRadius: '8px', border: 'none', background: (selIn || selOut || selDelta) ? GREEN : '#e5e7eb', color: (selIn || selOut || selDelta) ? '#fff' : '#9ca3af', fontSize: '12px', fontWeight: 700, cursor: (selIn || selOut || selDelta) ? 'pointer' : 'not-allowed', fontFamily: "'Poppins',sans-serif" }}>
+                {t('eventClosing.applyToSelected')}
+              </button>
+              <button onClick={() => setSelected(new Set())} style={{ padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', fontSize: '12px', fontWeight: 600, color: '#6b7280', cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                {t('eventClosing.clearSelection')}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Acordeón de turnos */}
+      {summary.turnos.map(turno => {
+        const key = turno.turno_start
+        const isOpen = expanded.has(key)
+        const allSelected = turno.employees.length > 0 && turno.employees.every(e => selected.has(e.assignment_id))
+        return (
+          <div key={key} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '10px', overflow: 'hidden' }}>
+            <div style={{ height: '2px', background: `linear-gradient(90deg,${GREEN_DARK},${GREEN})` }} />
+            <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', borderBottom: isOpen ? '1px solid #f3f4f6' : 'none' }}>
+              <button onClick={() => toggleExpanded(key)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: 0, fontFamily: "'Poppins',sans-serif" }}>
+                <ChevronRight size={14} color="#6b7280" style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#111827' }}>{t('eventClosing.turno')} {key}</span>
+              </button>
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{turno.total} {t('eventClosing.employees')}</span>
+              {turno.sin_salida > 0 ? (
+                <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#fef2f2', color: '#dc2626' }}>
+                  {turno.sin_salida} {t('eventClosing.withoutClockOut')}
+                </span>
+              ) : (
+                <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#f0fdf4', color: '#15803d' }}>
+                  ✓ {t('eventClosing.turnoClosed')}
+                </span>
+              )}
+              <div style={{ flex: 1 }} />
+              {!locked && (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'end', flexWrap: 'wrap' }}>
+                  <div>
+                    <label style={closingLabel}>{t('eventClosing.clockInTurno')}</label>
+                    <input type="time" value={turnoIn[key] || ''} onChange={e => setTurnoIn(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...closingField, width: '128px', height: '32px' }} />
+                  </div>
+                  <div>
+                    <label style={closingLabel}>{t('eventClosing.clockOutTurno')}</label>
+                    <input type="time" value={turnoOut[key] || ''} onChange={e => setTurnoOut(prev => ({ ...prev, [key]: e.target.value }))} style={{ ...closingField, width: '128px', height: '32px' }} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {isOpen && (
+              <div>
+                {!locked && (
+                  <div style={{ padding: '8px 14px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input type="checkbox" checked={allSelected} onChange={() => toggleTurnoSelection(turno)} style={{ accentColor: GREEN, cursor: 'pointer' }} />
+                    <span style={{ fontSize: '11px', color: '#6b7280', fontWeight: 600 }}>{t('eventClosing.selectAllTurno')}</span>
+                  </div>
+                )}
+                {turno.employees.map(emp => {
+                  const aid = emp.assignment_id
+                  const noEntry = !emp.clock_in
+                  const noExit = !emp.clock_out
+                  const delta = rowDelta[aid] || 0
+                  return (
+                    <div key={aid} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderBottom: '1px solid #f3f4f6', flexWrap: 'wrap', background: selected.has(aid) ? '#f0fdf4' : '#fff' }}>
+                      {!locked && <input type="checkbox" checked={selected.has(aid)} onChange={() => toggleSelected(aid)} style={{ accentColor: GREEN, cursor: 'pointer' }} />}
+                      <div style={{ flex: 1, minWidth: '130px' }}>
+                        <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{emp.user_name}</p>
+                        <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{emp.job_role_name}{emp.hourly_rate_snapshot ? ` · $${parseFloat(emp.hourly_rate_snapshot).toFixed(2)}/h` : ''}</p>
+                      </div>
+                      {noEntry && <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#fff7ed', color: '#c2410c' }}>{t('eventClosing.noClockIn')}</span>}
+                      {!noEntry && noExit && <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#fef2f2', color: '#dc2626' }}>{t('eventClosing.noClockOut')}</span>}
+                      {emp.is_paused && <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#eff6ff', color: '#1d4ed8' }}>{t('eventClosing.paused')}</span>}
+                      {!locked ? (
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <input type="time" value={rowIn[aid] || ''} onChange={e => { setRowIn(prev => ({ ...prev, [aid]: e.target.value })); setTouchedIn(prev => new Set(prev).add(aid)) }} style={{ ...closingField, width: '128px', height: '32px' }} title={t('eventClosing.clockInTime')} />
+                          <span style={{ fontSize: '11px', color: '#9ca3af' }}>→</span>
+                          <input type="time" value={rowOut[aid] || ''} onChange={e => { setRowOut(prev => ({ ...prev, [aid]: e.target.value })); setTouchedOut(prev => new Set(prev).add(aid)) }} style={{ ...closingField, width: '128px', height: '32px' }} title={t('eventClosing.clockOutTime')} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginLeft: '4px' }} title={t('eventClosing.hoursDelta')}>
+                            <button onClick={() => stepDelta(aid, -0.5)} disabled={noExit || (delta < 0 && Math.abs(delta) >= (maxSubtract[aid] || 0))} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: (noExit || (delta < 0 && Math.abs(delta) >= (maxSubtract[aid] || 0))) ? 'not-allowed' : 'pointer', opacity: (noExit || (delta < 0 && Math.abs(delta) >= (maxSubtract[aid] || 0))) ? 0.4 : 1 }}>−</button>
+                            <span onClick={() => setRowDelta(prev => { const n = { ...prev }; delete n[aid]; return n })} style={{ fontSize: '11px', fontWeight: 700, minWidth: '38px', textAlign: 'center', cursor: 'pointer', color: delta > 0 ? '#15803d' : delta < 0 ? '#dc2626' : '#9ca3af' }}>{delta > 0 ? '+' : ''}{delta}h</span>
+                            <button onClick={() => stepDelta(aid, 0.5)} disabled={noExit} style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: noExit ? 'not-allowed' : 'pointer', opacity: noExit ? 0.4 : 1 }}>+</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'right' }}>
+                          <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, color: '#15803d' }}>{emp.hours_worked ? `${parseFloat(emp.hours_worked).toFixed(2)}h` : '—'}</p>
+                          {emp.total_pay && <p style={{ margin: 0, fontSize: '11px', color: '#15803d' }}>${parseFloat(emp.total_pay).toFixed(2)}</p>}
+                        </div>
+                      )}
+                      {!locked && emp.hours_worked && (
+                        <p style={{ margin: 0, fontSize: '11px', color: '#15803d', fontWeight: 600, width: '100%' }}>
+                          {t('common.total')}: {parseFloat(emp.hours_worked).toFixed(2)}h · ${emp.total_pay ? parseFloat(emp.total_pay).toFixed(2) : '—'}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Botón guardar */}
+      {!locked && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
+          {pendingOpsCount > 0 && <span style={{ fontSize: '12px', color: '#6b7280' }}>{pendingOpsCount} {t('eventClosing.pendingChanges')}</span>}
+          <button onClick={handleSave} disabled={saving || pendingOpsCount === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '8px', border: 'none', background: pendingOpsCount > 0 ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#e5e7eb', color: pendingOpsCount > 0 ? '#fff' : '#9ca3af', fontSize: '13px', fontWeight: 700, cursor: pendingOpsCount > 0 ? 'pointer' : 'not-allowed', fontFamily: "'Poppins',sans-serif", opacity: saving ? 0.7 : 1 }}>
+            {saving ? t('eventClosing.saving') : t('eventClosing.saveChanges')}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 export default function EventDetailModal({ eventId, onClose, onEdit, onStatusChange }: Props) {
   const { user } = useAuth()
   const { t } = useTranslation()
@@ -149,8 +628,6 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
   const [selected, setSelected]       = useState<Map<number, number>>(new Map())
   const [inviteResult, setInviteResult] = useState('')
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; danger?: boolean } | null>(null)
-  const [closeLoading, setCloseLoading] = useState(false)
-  const [closeTime, setCloseTime]     = useState('')
   const [activeTab, setActiveTab]     = useState<'info' | 'shifts' | 'assignments'>('info')
   const invitePanelRef = React.useRef<HTMLDivElement>(null)
 
@@ -183,7 +660,7 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
     } catch { } finally { setLoading(false) }
   }
 
-  useEffect(() => { setActiveTab('info'); setCloseTime(''); loadData() }, [eventId])
+  useEffect(() => { setActiveTab('info'); loadData() }, [eventId])
 
   const getRoleName = (id: number) => jobRoles.find(r => r.id === id)?.name || `Rol #${id}`
   const getRoleRate = (id: number) => jobRoles.find(r => r.id === id)?.hourly_rate || '0'
@@ -340,21 +817,6 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
     })
   }
 
-  const handleCloseEvent = async () => {
-    if (!closeTime) { setError('Ingresa la hora de fin'); return }
-    setConfirmDialog({
-      title: '¿Finalizar evento?',
-      message: `Se aplicará la hora de salida ${closeTime} a TODOS los empleados activos.`,
-      danger: false,
-      onConfirm: async () => {
-        setConfirmDialog(null)
-        setCloseLoading(true); setError('')
-        try { await api.post(`/shifts/events/${eventId}/close`, { end_time: closeTime }); await loadData(); onStatusChange?.() }
-        catch (e: any) { setError(e.response?.data?.detail || 'Error') }
-        finally { setCloseLoading(false) }
-      }
-    })
-  }
 
   if (!event && !loading) return null
 
@@ -680,48 +1142,11 @@ export default function EventDetailModal({ eventId, onClose, onEdit, onStatusCha
 
               {/* ── TAB TURNOS ── */}
               {activeTab === 'shifts' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {activeShifts.length === 0 ? <p style={{ fontSize: '13px', color: '#9ca3af', textAlign: 'center', padding: '2rem' }}>{t('events.noShiftsStarted')}</p> : activeShifts.map(shift => {
-                    const isActive = !!shift.clock_in && !shift.clock_out
-                    const fmt = (iso: string | null) => { if (!iso) return '—'; const ts = parseUtcNaive(iso); return isNaN(ts) ? '—' : new Date(ts).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) }
-                    return (
-                      <div key={shift.shift_id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: isActive ? '#fffbeb' : '#f9fafb', border: `1px solid ${isActive ? '#fde68a' : '#e5e7eb'}`, borderRadius: '10px' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shift.user_name}</p>
-                          <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{shift.job_role_name} · ${parseFloat(shift.hourly_rate_snapshot).toFixed(2)}/h</p>
-                          {event?.status === 'finished' && <EditClockIn shiftId={shift.shift_id} currentClockIn={shift.clock_in} onSaved={loadData} />}
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                          {isActive ? (
-                            <><div style={{ display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'flex-end' }}><span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#f59e0b', animation: 'pulse 1.5s infinite' }} /><LiveClock clockInIso={shift.clock_in} /></div><p style={{ margin: '2px 0 0', fontSize: '11px', color: '#b45309' }}>Entrada: {fmt(shift.clock_in)}</p></>
-                          ) : (
-                            <><p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#15803d' }}>{shift.hours_worked ? `${parseFloat(shift.hours_worked).toFixed(2)}h` : '—'}</p><p style={{ margin: '1px 0 0', fontSize: '11px', color: '#9ca3af' }}>{fmt(shift.clock_in)} → {fmt(shift.clock_out)}</p>{shift.total_pay && <p style={{ margin: '1px 0 0', fontSize: '12px', fontWeight: 700, color: '#15803d' }}>${parseFloat(shift.total_pay).toFixed(2)}</p>}</>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {activeShifts.some(s => s.clock_out) && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>Total horas:</span>
-                      <span style={{ fontSize: '13px', fontWeight: 800, color: '#15803d' }}>{activeShifts.filter(s => s.hours_worked).reduce((a, s) => a + parseFloat(s.hours_worked!), 0).toFixed(2)}h</span>
-                    </div>
-                  )}
-                  {event?.status === 'started' && (
-                    <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '12px 14px' }}>
-                      <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: 600, color: '#374151' }}>Finalizar evento para todos:</p>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <input type="time" value={closeTime} onChange={e => setCloseTime(e.target.value)}
-                          style={{ height: '36px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0 10px', fontSize: '13px', outline: 'none' }} />
-                        <button onClick={handleCloseEvent} disabled={closeLoading || !closeTime}
-                          style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: '12px', fontWeight: 700, cursor: !closeTime ? 'not-allowed' : 'pointer' }}>
-                          {closeLoading ? 'Cerrando...' : '⏹ Cerrar Evento'}
-                        </button>
-                      </div>
-                      <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#9ca3af' }}>{t('events.thisActionApplies')}</p>
-                    </div>
-                  )}
-                </div>
+                <EventClosingPanel
+                  eventId={eventId}
+                  eventStatus={event?.status || ''}
+                  onChanged={() => { loadData(); onStatusChange?.() }}
+                />
               )}
 
               {/* ── TAB PERSONAL ── */}

@@ -469,11 +469,9 @@ async def clock_out(
 
     await db.flush()
 
-    if event and event.status == "started":
-        all_done = await _check_all_finished(assignment.event_id, db)
-        if all_done:
-            event.status = "finished"
-            await db.flush()
+    # El cierre del turno por el empleado NO finaliza el evento. La finalización
+    # es una acción explícita del admin/coordinador desde el cierre de evento,
+    # que valida que todos los turnos estén cerrados.
 
     return shift
 
@@ -918,3 +916,497 @@ async def bulk_clock_in(
         await db.flush()
 
     return {"created": created, "skipped": skipped, "message": f"Turno iniciado para {created} empleado(s)"}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ── Cierre de evento por turnos (admin/coordinador) ─────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# Un "turno" se deriva del start_time del EventJobRole asociado a cada
+# asignación (fallback: start_time del evento). Los empleados con el mismo
+# start_time pertenecen al mismo turno.
+
+from datetime import date as date_type
+
+
+def _parse_hhmm(value: str) -> tuple[int, int]:
+    try:
+        parts = value.strip().split(":")
+        h = int(parts[0])
+        m = int(parts[1])
+        if h < 0 or h > 23 or m < 0 or m > 59:
+            raise ValueError
+        return h, m
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Formato de hora inválido: '{value}'. Use HH:MM")
+
+
+def _utc_to_local(dt_utc: datetime, tz: ZoneInfo) -> datetime:
+    naive = dt_utc.replace(tzinfo=None) if dt_utc.tzinfo else dt_utc
+    return naive.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+
+
+def _local_to_utc_naive(dt_local: datetime, tz: ZoneInfo) -> datetime:
+    return dt_local.replace(tzinfo=tz).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
+def _clock_out_from_hhmm(clock_in: datetime, hhmm: str, tz: ZoneInfo) -> datetime:
+    """Construye el clock_out (UTC naive) a partir de HH:MM en hora local del
+    evento.
+
+    Regla: el clock_out es la PRÓXIMA vez que ocurre esa hora de pared a partir
+    del clock_in (estrictamente después). Premisa del negocio: ningún turno
+    dura más de 24h, por lo que la próxima ocurrencia es siempre la correcta.
+      - entrada 23:00, salida 01:00 → +1 día (cruza medianoche)
+      - entrada 05:00, salida 07:00 → mismo día
+      - entrada 23:00, salida 23:30 → mismo día (30 min después)
+      - entrada 23:00, salida 23:00 → +1 día (turno de 24h exactas)
+    """
+    h, m = _parse_hhmm(hhmm)
+    clock_in_local = _utc_to_local(clock_in, tz)
+    out_local = datetime(clock_in_local.year, clock_in_local.month, clock_in_local.day, h, m, 0)
+    # Si la hora de salida cae en o antes del instante de entrada, es del día siguiente.
+    if out_local <= clock_in_local.replace(tzinfo=None):
+        out_local = out_local + timedelta(days=1)
+    return _local_to_utc_naive(out_local, tz)
+
+
+def _clock_in_from_hhmm(event: Event, hhmm: str, tz: ZoneInfo) -> datetime:
+    """Construye el clock_in (UTC naive) combinando la fecha del evento con
+    HH:MM en hora local del evento."""
+    h, m = _parse_hhmm(hhmm)
+    in_local = datetime(event.event_date.year, event.event_date.month, event.event_date.day, h, m, 0)
+    return _local_to_utc_naive(in_local, tz)
+
+
+async def _resolve_turno_start(assignment: EventAssignment, event: Event, db: AsyncSession):
+    """start_time del turno al que pertenece la asignación."""
+    ejr = None
+    if assignment.event_job_role_id:
+        ejr = await db.get(EventJobRole, assignment.event_job_role_id)
+    if not ejr:
+        q = await db.execute(
+            select(EventJobRole).where(
+                EventJobRole.event_id == event.id,
+                EventJobRole.job_role_id == assignment.job_role_id,
+            )
+        )
+        ejr = q.scalars().first()
+    if ejr and ejr.start_time:
+        return ejr.start_time
+    return event.start_time
+
+
+async def _resolve_hourly_rate(assignment: EventAssignment, company_id: int, db: AsyncSession) -> Decimal:
+    """Jerarquía de tarifa: override del evento > override del empleado > base del rol.
+    (Misma lógica que bulk_clock_in.)"""
+    from app.models import EmployeeJobRole
+    role = await db.get(JobRole, assignment.job_role_id)
+    hourly_rate = role.hourly_rate if role and role.hourly_rate else Decimal("0")
+    ejr = None
+    if assignment.event_job_role_id:
+        ejr = await db.get(EventJobRole, assignment.event_job_role_id)
+    if not ejr:
+        q = await db.execute(
+            select(EventJobRole).where(
+                EventJobRole.event_id == assignment.event_id,
+                EventJobRole.job_role_id == assignment.job_role_id,
+            )
+        )
+        ejr = q.scalars().first()
+    if ejr and ejr.hourly_rate_override:
+        return ejr.hourly_rate_override
+    emp_q = await db.execute(
+        select(EmployeeJobRole).where(
+            EmployeeJobRole.user_id == assignment.user_id,
+            EmployeeJobRole.company_id == company_id,
+            EmployeeJobRole.job_role_id == assignment.job_role_id,
+        )
+    )
+    emp_role = emp_q.scalars().first()
+    if emp_role and emp_role.hourly_rate_override:
+        return emp_role.hourly_rate_override
+    return hourly_rate
+
+
+async def _recalc_pay(shift: Shift, assignment: EventAssignment, event: Event, company_id: int, db: AsyncSession) -> None:
+    """Recalcula horas y pago (con overtime) de un shift. Si falta entrada o
+    salida, limpia los campos calculados."""
+    if not shift.clock_in or not shift.clock_out:
+        shift.hours_worked = None
+        shift.regular_pay = None
+        shift.overtime_pay = Decimal("0.00")
+        shift.total_pay = None
+        return
+    clock_in_naive = shift.clock_in.replace(tzinfo=None) if shift.clock_in.tzinfo else shift.clock_in
+    clock_out_naive = shift.clock_out.replace(tzinfo=None) if shift.clock_out.tzinfo else shift.clock_out
+    gross_hours = _duration_hours(clock_in_naive, clock_out_naive)
+    pause_hours = Decimal(str(round(float(shift.total_pause_minutes or 0) / 60, 4)))
+    hours_worked = max(Decimal("0"), gross_hours - pause_hours)
+    limit, hours_this_week, min_shift = await _get_weekly_hours(
+        assignment.user_id, company_id, event.event_date, db
+    )
+    pay = calculate_shift_pay(hours_worked, shift.hourly_rate_snapshot, limit, hours_this_week, min_shift)
+    shift.hours_worked = pay.hours_billed
+    shift.regular_pay = pay.regular_pay
+    shift.overtime_pay = pay.overtime_pay
+    shift.total_pay = pay.total_pay
+
+
+async def _get_closing_targets(event: Event, db: AsyncSession):
+    """Todas las asignaciones aprobadas del evento con su shift (si existe),
+    usuario, rol y turno. Incluye empleados SIN clock_in (shift = None)."""
+    from app.models import User
+    result = await db.execute(
+        select(EventAssignment, User, JobRole)
+        .join(User, User.id == EventAssignment.user_id)
+        .join(JobRole, JobRole.id == EventAssignment.job_role_id)
+        .where(
+            EventAssignment.event_id == event.id,
+            EventAssignment.status == "approved",
+        )
+        .order_by(User.name)
+    )
+    rows = result.all()
+    targets = []
+    for assignment, user, role in rows:
+        sq = await db.execute(select(Shift).where(Shift.assignment_id == assignment.id))
+        shift = sq.scalar_one_or_none()
+        turno = await _resolve_turno_start(assignment, event, db)
+        targets.append({
+            "assignment": assignment,
+            "user": user,
+            "role": role,
+            "shift": shift,
+            "turno": turno,
+        })
+    return targets
+
+
+# ── Schemas de cierre ──────────────────────────────────────────────────────
+
+class ClosingEmployeeOut(BaseModel):
+    assignment_id: int
+    shift_id: int | None
+    user_id: int
+    user_name: str
+    job_role_name: str
+    turno_start: str                       # HH:MM
+    clock_in: datetime | None
+    clock_out: datetime | None
+    is_paused: bool
+    total_pause_minutes: Decimal
+    hours_worked: Decimal | None
+    hourly_rate_snapshot: Decimal | None
+    total_pay: Decimal | None
+
+
+class ClosingTurnoOut(BaseModel):
+    turno_start: str                       # HH:MM
+    total: int
+    sin_entrada: int
+    sin_salida: int
+    employees: list[ClosingEmployeeOut]
+
+
+class ClosingSummaryOut(BaseModel):
+    event_id: int
+    event_name: str
+    event_date: date_type
+    event_status: str
+    turnos: list[ClosingTurnoOut]
+    total_employees: int
+    total_sin_entrada: int
+    total_sin_salida: int
+    ready_to_finish: bool
+
+
+class ClosingOperation(BaseModel):
+    action: str                            # set_clock_in | set_clock_out | adjust_hours
+    scope: str                             # event | turno | targets
+    turno_start: str | None = None         # HH:MM (requerido si scope=turno)
+    shift_ids: list[int] | None = None     # scope=targets
+    assignment_ids: list[int] | None = None  # scope=targets (empleados sin shift)
+    time: str | None = None                # HH:MM (set_clock_in / set_clock_out)
+    delta_hours: Decimal | None = None     # adjust_hours (+/-)
+
+
+class ClosingBulkRequest(BaseModel):
+    operations: list[ClosingOperation]
+
+
+class ClosingOperationResult(BaseModel):
+    action: str
+    scope: str
+    detail: str
+    affected: int
+    skipped: int
+    employees: list[str]
+    notes: list[str]
+
+
+class ClosingBulkResponse(BaseModel):
+    results: list[ClosingOperationResult]
+    total_employees: int
+    total_sin_entrada: int
+    total_sin_salida: int
+    ready_to_finish: bool
+
+
+def _closing_counters(targets) -> tuple[int, int, int]:
+    total = len(targets)
+    sin_entrada = sum(1 for t in targets if not t["shift"] or not t["shift"].clock_in)
+    sin_salida = sum(1 for t in targets if not t["shift"] or not t["shift"].clock_out)
+    return total, sin_entrada, sin_salida
+
+
+# ── GET resumen de cierre ──────────────────────────────────────────────────
+
+@router.get("/events/{event_id}/closing-summary", response_model=ClosingSummaryOut)
+async def get_event_closing_summary(
+    event_id: int,
+    current_user: AdminCoordDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Resumen del evento agrupado por turnos para la pantalla de cierre."""
+    company_id = current_user["company_id"]
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    targets = await _get_closing_targets(event, db)
+
+    turnos_map: dict[str, list] = {}
+    for tgt in targets:
+        key = tgt["turno"].strftime("%H:%M")
+        if key not in turnos_map:
+            turnos_map[key] = []
+        turnos_map[key].append(tgt)
+
+    turnos_out = []
+    for key in sorted(turnos_map.keys()):
+        group = turnos_map[key]
+        employees = []
+        for tgt in group:
+            shift = tgt["shift"]
+            employees.append(ClosingEmployeeOut(
+                assignment_id=tgt["assignment"].id,
+                shift_id=shift.id if shift else None,
+                user_id=tgt["user"].id,
+                user_name=tgt["user"].name,
+                job_role_name=tgt["role"].name,
+                turno_start=key,
+                clock_in=shift.clock_in if shift else None,
+                clock_out=shift.clock_out if shift else None,
+                is_paused=shift.is_paused if shift else False,
+                total_pause_minutes=(shift.total_pause_minutes if shift else Decimal("0")) or Decimal("0"),
+                hours_worked=shift.hours_worked if shift else None,
+                hourly_rate_snapshot=shift.hourly_rate_snapshot if shift else None,
+                total_pay=shift.total_pay if shift else None,
+            ))
+        g_total, g_sin_in, g_sin_out = _closing_counters(group)
+        turnos_out.append(ClosingTurnoOut(
+            turno_start=key,
+            total=g_total,
+            sin_entrada=g_sin_in,
+            sin_salida=g_sin_out,
+            employees=employees,
+        ))
+
+    total, sin_entrada, sin_salida = _closing_counters(targets)
+    return ClosingSummaryOut(
+        event_id=event.id,
+        event_name=event.name,
+        event_date=event.event_date,
+        event_status=event.status,
+        turnos=turnos_out,
+        total_employees=total,
+        total_sin_entrada=sin_entrada,
+        total_sin_salida=sin_salida,
+        ready_to_finish=(total > 0 and sin_entrada == 0 and sin_salida == 0),
+    )
+
+
+# ── POST aplicar operaciones de cierre ─────────────────────────────────────
+
+@router.post("/events/{event_id}/bulk-update", response_model=ClosingBulkResponse)
+async def bulk_update_event_shifts(
+    event_id: int,
+    body: ClosingBulkRequest,
+    current_user: AdminCoordDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Aplica operaciones de cierre sobre los shifts del evento sin cambiar el
+    estado del evento. Acciones:
+      - set_clock_in: fija hora de entrada (crea el shift si no existe)
+      - set_clock_out: fija hora de salida (detecta cruce de medianoche)
+      - adjust_hours: suma/resta horas moviendo la hora de salida
+    Alcances (scope): event (todos), turno (por turno_start), targets
+    (shift_ids y/o assignment_ids específicos).
+    Devuelve un resumen de lo aplicado por operación."""
+    company_id = current_user["company_id"]
+    modifier_id = int(current_user["sub"])
+
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    if event.status not in ("started", "finished"):
+        raise HTTPException(status_code=400, detail="Solo se pueden ajustar turnos en eventos iniciados o finalizados (un evento liquidado no admite cambios)")
+    if not body.operations:
+        raise HTTPException(status_code=400, detail="No se recibieron operaciones")
+
+    tz = _get_timezone_from_state(event.state)
+    results: list[ClosingOperationResult] = []
+
+    for op in body.operations:
+        if op.action not in ("set_clock_in", "set_clock_out", "adjust_hours"):
+            raise HTTPException(status_code=400, detail=f"Acción inválida: '{op.action}'")
+        if op.scope not in ("event", "turno", "targets"):
+            raise HTTPException(status_code=400, detail=f"Alcance inválido: '{op.scope}'")
+        if op.action in ("set_clock_in", "set_clock_out") and not op.time:
+            raise HTTPException(status_code=400, detail=f"La acción {op.action} requiere el campo 'time' (HH:MM)")
+        if op.action == "adjust_hours" and (op.delta_hours is None or op.delta_hours == 0):
+            raise HTTPException(status_code=400, detail="La acción adjust_hours requiere 'delta_hours' distinto de 0")
+
+        # Targets se recargan en cada operación para encadenar efectos
+        # (ej: set_clock_in seguido de set_clock_out sobre shifts recién creados)
+        targets = await _get_closing_targets(event, db)
+
+        if op.scope == "turno":
+            if not op.turno_start:
+                raise HTTPException(status_code=400, detail="El alcance 'turno' requiere 'turno_start' (HH:MM)")
+            th, tm = _parse_hhmm(op.turno_start)
+            targets = [t for t in targets if t["turno"].hour == th and t["turno"].minute == tm]
+            scope_label = f"turno {op.turno_start}"
+        elif op.scope == "targets":
+            sids = set(op.shift_ids or [])
+            aids = set(op.assignment_ids or [])
+            if not sids and not aids:
+                raise HTTPException(status_code=400, detail="El alcance 'targets' requiere 'shift_ids' y/o 'assignment_ids'")
+            targets = [
+                t for t in targets
+                if (t["shift"] and t["shift"].id in sids) or t["assignment"].id in aids
+            ]
+            scope_label = "empleados seleccionados"
+        else:
+            scope_label = "todo el evento"
+
+        affected = 0
+        skipped = 0
+        employees: list[str] = []
+        notes: list[str] = []
+
+        for tgt in targets:
+            assignment = tgt["assignment"]
+            shift = tgt["shift"]
+            uname = tgt["user"].name
+
+            if op.action == "set_clock_in":
+                new_in = _clock_in_from_hhmm(event, op.time, tz)
+                if shift is None:
+                    rate = await _resolve_hourly_rate(assignment, company_id, db)
+                    if not rate or rate <= 0:
+                        skipped += 1
+                        notes.append(f"{uname}: sin tarifa horaria configurada, omitido")
+                        continue
+                    shift = Shift(
+                        assignment_id=assignment.id,
+                        clock_in=new_in,
+                        clock_in_lat=Decimal("0"),
+                        clock_in_lng=Decimal("0"),
+                        hourly_rate_snapshot=rate,
+                        overtime_pay=Decimal("0.00"),
+                        is_paused=False,
+                        total_pause_minutes=Decimal("0"),
+                        modified_by=modifier_id,
+                    )
+                    db.add(shift)
+                else:
+                    if shift.clock_out:
+                        out_naive = shift.clock_out.replace(tzinfo=None) if shift.clock_out.tzinfo else shift.clock_out
+                        if new_in >= out_naive:
+                            skipped += 1
+                            notes.append(f"{uname}: la nueva entrada queda después de su salida, omitido")
+                            continue
+                    shift.clock_in = new_in
+                    shift.modified_by = modifier_id
+                await db.flush()
+                await _recalc_pay(shift, assignment, event, company_id, db)
+                affected += 1
+                employees.append(uname)
+
+            elif op.action == "set_clock_out":
+                if shift is None or not shift.clock_in:
+                    skipped += 1
+                    notes.append(f"{uname}: sin hora de entrada, omitido (fije primero la entrada)")
+                    continue
+                new_out = _clock_out_from_hhmm(shift.clock_in, op.time, tz)
+                # Cerrar pausa activa si existe
+                if shift.is_paused and shift.pause_start:
+                    ps = shift.pause_start.replace(tzinfo=None) if shift.pause_start.tzinfo else shift.pause_start
+                    extra = Decimal(str(round((new_out - ps).total_seconds() / 60, 2)))
+                    shift.total_pause_minutes = (shift.total_pause_minutes or Decimal("0")) + max(Decimal("0"), extra)
+                    shift.is_paused = False
+                    shift.pause_start = None
+                shift.clock_out = new_out
+                shift.modified_by = modifier_id
+                await _recalc_pay(shift, assignment, event, company_id, db)
+                affected += 1
+                employees.append(uname)
+
+            else:  # adjust_hours
+                if shift is None or not shift.clock_in or not shift.clock_out:
+                    skipped += 1
+                    notes.append(f"{uname}: sin cierre registrado, omitido (fije primero la salida)")
+                    continue
+                out_naive = shift.clock_out.replace(tzinfo=None) if shift.clock_out.tzinfo else shift.clock_out
+                in_naive = shift.clock_in.replace(tzinfo=None) if shift.clock_in.tzinfo else shift.clock_in
+                # Horas reales actuales (descontando pausas): es el máximo que se puede restar.
+                pause_hours = float(shift.total_pause_minutes or 0) / 60
+                current_hours = (out_naive - in_naive).total_seconds() / 3600 - pause_hours
+                delta = float(op.delta_hours)
+                if delta < 0 and abs(delta) > current_hours + 1e-9:
+                    skipped += 1
+                    notes.append(
+                        f"{uname}: no se pueden restar {abs(delta):.1f}h, solo trabajó {current_hours:.2f}h, omitido"
+                    )
+                    continue
+                new_out = out_naive + timedelta(hours=delta)
+                if new_out <= in_naive:
+                    skipped += 1
+                    notes.append(f"{uname}: el ajuste dejaría la salida antes de la entrada, omitido")
+                    continue
+                shift.clock_out = new_out
+                shift.modified_by = modifier_id
+                await _recalc_pay(shift, assignment, event, company_id, db)
+                affected += 1
+                employees.append(uname)
+
+        if op.action == "set_clock_in":
+            detail = f"Entrada {op.time} aplicada a {scope_label}"
+        elif op.action == "set_clock_out":
+            detail = f"Salida {op.time} aplicada a {scope_label}"
+        else:
+            signo = "+" if op.delta_hours > 0 else ""
+            detail = f"Ajuste de {signo}{op.delta_hours}h aplicado a {scope_label}"
+
+        results.append(ClosingOperationResult(
+            action=op.action,
+            scope=op.scope,
+            detail=detail,
+            affected=affected,
+            skipped=skipped,
+            employees=employees,
+            notes=notes,
+        ))
+
+    await db.flush()
+
+    final_targets = await _get_closing_targets(event, db)
+    total, sin_entrada, sin_salida = _closing_counters(final_targets)
+    return ClosingBulkResponse(
+        results=results,
+        total_employees=total,
+        total_sin_entrada=sin_entrada,
+        total_sin_salida=sin_salida,
+        ready_to_finish=(total > 0 and sin_entrada == 0 and sin_salida == 0),
+    )

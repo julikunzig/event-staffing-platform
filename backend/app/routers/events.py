@@ -684,12 +684,42 @@ async def start_event(event_id: int, current_user: AdminCoordDep, db: AsyncSessi
 
 @router.post("/{event_id}/finish", response_model=EventOut)
 async def finish_event(event_id: int, current_user: AdminCoordDep, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import func as sqlfunc
+    from app.models import Shift
     company_id = current_user["company_id"]
     event = await db.get(Event, event_id)
     if not event or event.company_id != company_id:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
     if event.status != "started":
         raise HTTPException(status_code=400, detail="El evento debe estar iniciado para finalizarse")
+
+    # Validación de cierre: todos los empleados aprobados deben tener
+    # hora de entrada Y hora de salida registradas antes de finalizar.
+    total_q = await db.execute(
+        select(sqlfunc.count(EventAssignment.id)).where(
+            EventAssignment.event_id == event_id,
+            EventAssignment.status == "approved",
+        )
+    )
+    total_approved = total_q.scalar() or 0
+    closed_q = await db.execute(
+        select(sqlfunc.count(Shift.id))
+        .join(EventAssignment, Shift.assignment_id == EventAssignment.id)
+        .where(
+            EventAssignment.event_id == event_id,
+            EventAssignment.status == "approved",
+            Shift.clock_in.isnot(None),
+            Shift.clock_out.isnot(None),
+        )
+    )
+    closed = closed_q.scalar() or 0
+    pending = total_approved - closed
+    if pending > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede finalizar: {pending} empleado(s) sin hora de entrada y/o salida registrada. Cierre todos los turnos primero.",
+        )
+
     event.status = "finished"
     await db.flush()
     return event
