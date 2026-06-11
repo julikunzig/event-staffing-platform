@@ -17,6 +17,10 @@ class PayrollSettlement(Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    # Auditoría de anulación
+    annulled_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    annulled_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    annul_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     items: Mapped[list["PayrollSettlementItem"]] = relationship(back_populates="settlement", cascade="all, delete-orphan")
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])

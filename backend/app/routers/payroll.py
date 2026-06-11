@@ -312,6 +312,199 @@ async def settle_events(
     )
 
 
+@router.get("/settlements/{settlement_id}/summary", response_model=SettleResponse)
+async def get_settlement_summary(
+    settlement_id: int,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reconstruye el resumen de una liquidación pasada en el mismo formato que
+    el resultado de liquidar (totales + desglose por rol), a partir de los items
+    guardados. El rol se obtiene cruzando shift -> assignment -> job_role."""
+    company_id = current_user["company_id"]
+
+    settlement = await db.get(PayrollSettlement, settlement_id)
+    if not settlement or settlement.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Liquidación no encontrada")
+
+    # Items de la liquidación (siempre existen, son la fuente de verdad)
+    items_result = await db.execute(
+        select(PayrollSettlementItem).where(PayrollSettlementItem.settlement_id == settlement_id)
+    )
+    items = items_result.scalars().all()
+
+    # Mapa shift_id -> nombre de rol (vía shift -> assignment -> job_role).
+    # Se hace por separado y con outer joins para tolerar datos faltantes.
+    shift_ids = [it.shift_id for it in items]
+    role_by_shift: dict[int, str] = {}
+    event_ids: set[int] = set()
+    if shift_ids:
+        rel_result = await db.execute(
+            select(Shift.id, JobRole.name, EventAssignment.event_id)
+            .outerjoin(EventAssignment, Shift.assignment_id == EventAssignment.id)
+            .outerjoin(JobRole, EventAssignment.job_role_id == JobRole.id)
+            .where(Shift.id.in_(shift_ids))
+        )
+        for sid, role_name, ev_id in rel_result.all():
+            if role_name:
+                role_by_shift[sid] = role_name
+            if ev_id:
+                event_ids.add(ev_id)
+
+    total_regular = 0.0
+    total_overtime = 0.0
+    role_totals: dict[str, dict] = defaultdict(lambda: {"regular": 0.0, "overtime": 0.0, "total": 0.0})
+
+    for item in items:
+        reg = float(item.regular_pay or 0)
+        ot = float(item.overtime_pay or 0)
+        total_regular += reg
+        total_overtime += ot
+        role_name = role_by_shift.get(item.shift_id, "Sin rol")
+        role_totals[role_name]["regular"] += reg
+        role_totals[role_name]["overtime"] += ot
+        role_totals[role_name]["total"] += float(item.total_pay or 0)
+
+    events_settled = len(event_ids)
+
+    return SettleResponse(
+        settlement_id=settlement.id,
+        events_settled=events_settled,
+        total_regular=round(total_regular, 2),
+        total_overtime=round(total_overtime, 2),
+        total_general=round(total_regular + total_overtime, 2),
+        by_role=[
+            {"role": k, "regular": round(v["regular"], 2), "overtime": round(v["overtime"], 2), "total": round(v["total"], 2)}
+            for k, v in sorted(role_totals.items())
+        ],
+    )
+
+
+class AnnulRequest(BaseModel):
+    confirm: bool = False
+    reason: str | None = None
+
+
+@router.post("/settlements/{settlement_id}/annul")
+async def annul_settlement(
+    settlement_id: int,
+    body: AnnulRequest,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """Anula una liquidación: revierte eventos settled->finished, limpia el
+    settlement_id de los shifts y marca la liquidación como 'anulado'
+    (conservando el registro y sus items para auditoría).
+
+    Si existen liquidaciones POSTERIORES en alguna de las mismas semanas, el
+    overtime acumulado de esas quedaría inconsistente. En ese caso, si no llega
+    confirm=true, responde 409 con la lista de liquidaciones afectadas para que
+    el frontend muestre la alerta y pida confirmación.
+    """
+    company_id = current_user["company_id"]
+    user_id = int(current_user["sub"])
+
+    settlement = await db.get(PayrollSettlement, settlement_id)
+    if not settlement or settlement.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Liquidación no encontrada")
+    if settlement.status == "anulado":
+        raise HTTPException(status_code=400, detail="La liquidación ya está anulada")
+    if settlement.status != "liquidado":
+        raise HTTPException(status_code=400, detail="Solo se pueden anular liquidaciones en estado liquidado")
+
+    # Semanas que cubre esta liquidación (de sus items)
+    items_result = await db.execute(
+        select(PayrollSettlementItem).where(PayrollSettlementItem.settlement_id == settlement_id)
+    )
+    items = items_result.scalars().all()
+    if not items:
+        # Liquidación sin items: anular directo sin más validación
+        weeks = set()
+    else:
+        weeks = {(it.week_start, it.week_end) for it in items}
+
+    # Detectar liquidaciones POSTERIORES (created_at mayor) que toquen las mismas semanas
+    conflicts = []
+    if weeks:
+        later_result = await db.execute(
+            select(PayrollSettlement)
+            .where(
+                PayrollSettlement.company_id == company_id,
+                PayrollSettlement.status == "liquidado",
+                PayrollSettlement.id != settlement_id,
+                PayrollSettlement.created_at > settlement.created_at,
+            )
+            .order_by(PayrollSettlement.created_at)
+        )
+        for later in later_result.scalars().all():
+            later_items = await db.execute(
+                select(PayrollSettlementItem.week_start, PayrollSettlementItem.week_end)
+                .where(PayrollSettlementItem.settlement_id == later.id)
+            )
+            later_weeks = {(ws, we) for ws, we in later_items.all()}
+            if later_weeks & weeks:  # intersección de semanas
+                conflicts.append({
+                    "id": later.id,
+                    "period_start": later.period_start.isoformat(),
+                    "period_end": later.period_end.isoformat(),
+                    "total_amount": float(later.total_amount),
+                })
+
+    # Si hay conflictos y no se confirmó, devolver 409 con la lista
+    if conflicts and not body.confirm:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "later_settlements_exist",
+                "message": "Existen liquidaciones posteriores en las mismas semanas. Su cálculo de horas extra podría quedar inconsistente.",
+                "conflicts": conflicts,
+            },
+        )
+
+    # ── Revertir ──
+    # 1. Eventos settled -> finished (vía shifts -> assignments -> events)
+    shift_ids = [it.shift_id for it in items]
+    event_ids: set[int] = set()
+    if shift_ids:
+        ev_result = await db.execute(
+            select(func.distinct(EventAssignment.event_id))
+            .select_from(Shift)
+            .join(EventAssignment, Shift.assignment_id == EventAssignment.id)
+            .where(Shift.id.in_(shift_ids))
+        )
+        event_ids = {row[0] for row in ev_result.all() if row[0]}
+
+    for eid in event_ids:
+        event = await db.get(Event, eid)
+        if event and event.company_id == company_id and event.status == "settled":
+            event.status = "finished"
+
+    # 2. Limpiar settlement_id de los shifts liquidados
+    if shift_ids:
+        shifts_result = await db.execute(
+            select(Shift).where(Shift.id.in_(shift_ids))
+        )
+        for shift in shifts_result.scalars().all():
+            if shift.settlement_id == settlement_id:
+                shift.settlement_id = None
+
+    # 3. Marcar la liquidación como anulada (conservar items para auditoría)
+    from datetime import datetime as _dt
+    settlement.status = "anulado"
+    settlement.annulled_at = _dt.utcnow()
+    settlement.annulled_by = user_id
+    settlement.annul_reason = (body.reason or "").strip() or None
+
+    await db.flush()
+
+    return {
+        "settlement_id": settlement.id,
+        "status": "anulado",
+        "events_reverted": len(event_ids),
+        "shifts_reverted": len(shift_ids),
+    }
+
+
 @router.get("/settlements")
 async def list_settlements(current_user: AdminDep, db: AsyncSession = Depends(get_db)):
     """List past settlements."""
@@ -330,6 +523,10 @@ async def list_settlements(current_user: AdminDep, db: AsyncSession = Depends(ge
             .where(PayrollSettlementItem.settlement_id == s.id)
         )
         row = items_result.one()
+        annuller_name = None
+        if getattr(s, "annulled_by", None):
+            annuller = await db.get(User, s.annulled_by)
+            annuller_name = annuller.name if annuller else None
         output.append({
             "id": s.id, "status": s.status,
             "period_start": s.period_start.isoformat(), "period_end": s.period_end.isoformat(),
@@ -337,5 +534,8 @@ async def list_settlements(current_user: AdminDep, db: AsyncSession = Depends(ge
             "created_at": s.created_at.isoformat(),
             "creator_name": creator.name if creator else None,
             "shifts_count": row[0], "employees_count": row[1],
+            "annulled_at": s.annulled_at.isoformat() if getattr(s, "annulled_at", None) else None,
+            "annuller_name": annuller_name,
+            "annul_reason": getattr(s, "annul_reason", None),
         })
     return output

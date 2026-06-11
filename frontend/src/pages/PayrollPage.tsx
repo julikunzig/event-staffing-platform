@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import api from '@/lib/api'
-import { DollarSign, Eye, X, CheckSquare, Square } from 'lucide-react'
+import {
+  DollarSign, Eye, X, CheckSquare, Square, Search, RefreshCw,
+  ChevronLeft, ChevronRight, ArrowUp, ArrowDown, ArrowUpDown, Calendar,
+} from 'lucide-react'
 
 const GREEN = '#2db84b'
 const GREEN_DARK = '#1e9038'
@@ -9,168 +12,564 @@ const GREEN_DARK = '#1e9038'
 interface FinishedEvent { id: number; event_code: string | null; name: string; event_date: string; start_time: string; address: string; city: string | null }
 interface EventDetail { id: number; event_code: string | null; name: string; event_date: string; roles: { role_name: string; base_rate: number; employees: { user_name: string; hours_worked: number; hourly_rate: number }[] }[] }
 interface SettleResult { settlement_id: number; events_settled: number; total_regular: number; total_overtime: number; total_general: number; by_role: { role: string; regular: number; overtime: number; total: number }[] }
-interface Settlement { id: number; status: string; period_start: string; period_end: string; total_amount: number; created_at: string; creator_name: string | null; shifts_count: number; employees_count: number }
+interface Settlement { id: number; status: string; period_start: string; period_end: string; total_amount: number; created_at: string; creator_name: string | null; shifts_count: number; employees_count: number; annulled_at: string | null; annuller_name: string | null; annul_reason: string | null }
+interface AnnulConflict { id: number; period_start: string; period_end: string; total_amount: number }
+
+type SortKey = 'name' | 'event_date' | 'city'
+type SortDir = 'asc' | 'desc'
+
+const fieldStyle: React.CSSProperties = {
+  height: '36px', background: '#f9fafb', border: '1.5px solid #e5e7eb',
+  color: '#111827', borderRadius: '8px', fontSize: '13px',
+  padding: '0 10px', outline: 'none', fontFamily: "'Poppins',sans-serif",
+}
+
+// Presets de fecha (mismo patrón que EventsPage)
+function getDatePresets(t: any) {
+  return [
+    { key: '', label: t('payroll.dateAll') || 'Todos' },
+    { key: 'today', label: t('payroll.dateToday') || 'Hoy' },
+    { key: 'yesterday', label: t('payroll.dateYesterday') || 'Ayer' },
+    { key: 'week', label: t('payroll.dateWeek') || 'Esta semana' },
+    { key: 'month', label: t('payroll.dateMonth') || 'Este mes' },
+    { key: 'range', label: t('payroll.dateRange') || 'Rango' },
+  ]
+}
 
 export default function PayrollPage() {
   const { t } = useTranslation()
   const [events, setEvents] = useState<FinishedEvent[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [settling, setSettling] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<SettleResult | null>(null)
+  const [viewingHistory, setViewingHistory] = useState(false)  // true si el resumen abierto viene del historial
   const [detailEvent, setDetailEvent] = useState<EventDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [settlements, setSettlements] = useState<Settlement[]>([])
-  const [showHistory, setShowHistory] = useState(false)
+  const [activeTab, setActiveTab] = useState<'events' | 'history'>('events')
+  const [confirmSettle, setConfirmSettle] = useState(false)
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [evRes, setRes] = await Promise.all([
-          api.get<FinishedEvent[]>('/payroll/finished-events'),
-          api.get<Settlement[]>('/payroll/settlements'),
-        ])
-        setEvents(evRes.data)
-        setSettlements(setRes.data)
-      } catch {} finally { setLoading(false) }
+  // Filtros
+  const [search, setSearch] = useState('')
+  const [datePreset, setDatePreset] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+
+  // Tabla
+  const [sortKey, setSortKey] = useState<SortKey>('event_date')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+
+  // Historial: búsqueda y paginación
+  const [histSearch, setHistSearch] = useState('')
+  const [histPage, setHistPage] = useState(1)
+  const [histPageSize, setHistPageSize] = useState(10)
+
+  // Anulación
+  const [annulTarget, setAnnulTarget] = useState<Settlement | null>(null)
+  const [annulReason, setAnnulReason] = useState('')
+  const [annulConflicts, setAnnulConflicts] = useState<AnnulConflict[]>([])
+  const [annulConfirmNeeded, setAnnulConfirmNeeded] = useState(false)
+  const [annulling, setAnnulling] = useState(false)
+
+  const loadAll = async (silent?: boolean) => {
+    if (silent) setRefreshing(true); else setLoading(true)
+    try {
+      const [evRes, setRes] = await Promise.all([
+        api.get<FinishedEvent[]>('/payroll/finished-events'),
+        api.get<Settlement[]>('/payroll/settlements'),
+      ])
+      setEvents(evRes.data)
+      setSettlements(setRes.data)
+    } catch { setError(t('payroll.errorLoading') || 'Error cargando datos') }
+    finally { if (silent) setRefreshing(false); else setLoading(false) }
+  }
+
+  useEffect(() => { loadAll() }, [])
+
+  // ── Filtro por fecha ──
+  const filteredByDate = useMemo(() => {
+    if (!datePreset) return events
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const todayStr = today.toISOString().split('T')[0]
+    if (datePreset === 'today') return events.filter(e => e.event_date === todayStr)
+    if (datePreset === 'yesterday') {
+      const y = new Date(today); y.setDate(y.getDate() - 1)
+      return events.filter(e => e.event_date === y.toISOString().split('T')[0])
     }
-    load()
-  }, [])
+    if (datePreset === 'week') {
+      const start = new Date(today); start.setDate(today.getDate() - today.getDay())
+      const end = new Date(start); end.setDate(start.getDate() + 6)
+      const s = start.toISOString().split('T')[0], en = end.toISOString().split('T')[0]
+      return events.filter(e => e.event_date >= s && e.event_date <= en)
+    }
+    if (datePreset === 'month') {
+      const ym = todayStr.slice(0, 7)
+      return events.filter(e => e.event_date.startsWith(ym))
+    }
+    if (datePreset === 'range') {
+      return events.filter(e => (!dateFrom || e.event_date >= dateFrom) && (!dateTo || e.event_date <= dateTo))
+    }
+    return events
+  }, [events, datePreset, dateFrom, dateTo])
+
+  // ── Búsqueda + sort ──
+  const processed = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    let list = filteredByDate
+    if (q) list = list.filter(e =>
+      e.name.toLowerCase().includes(q) ||
+      (e.event_code || '').toLowerCase().includes(q) ||
+      (e.city || '').toLowerCase().includes(q)
+    )
+    const sorted = [...list].sort((a, b) => {
+      let av: string = '', bv: string = ''
+      if (sortKey === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase() }
+      else if (sortKey === 'city') { av = (a.city || '').toLowerCase(); bv = (b.city || '').toLowerCase() }
+      else { av = a.event_date; bv = b.event_date }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+    return sorted
+  }, [filteredByDate, search, sortKey, sortDir])
+
+  // ── Paginación ──
+  const totalPages = Math.max(1, Math.ceil(processed.length / pageSize))
+  const pageClamped = Math.min(page, totalPages)
+  const paginated = processed.slice((pageClamped - 1) * pageSize, pageClamped * pageSize)
+
+  useEffect(() => { setPage(1) }, [search, datePreset, dateFrom, dateTo, pageSize])
+
+  // ── Historial: filtro + paginación ──
+  const histFiltered = useMemo(() => {
+    const q = histSearch.trim().toLowerCase()
+    if (!q) return settlements
+    return settlements.filter(s =>
+      `#${s.id}`.includes(q) ||
+      String(s.id).includes(q) ||
+      s.period_start.includes(q) ||
+      s.period_end.includes(q) ||
+      (s.creator_name || '').toLowerCase().includes(q)
+    )
+  }, [settlements, histSearch])
+  const histTotalPages = Math.max(1, Math.ceil(histFiltered.length / histPageSize))
+  const histPageClamped = Math.min(histPage, histTotalPages)
+  const histPaginated = histFiltered.slice((histPageClamped - 1) * histPageSize, histPageClamped * histPageSize)
+  useEffect(() => { setHistPage(1) }, [histSearch, histPageSize])
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir(key === 'event_date' ? 'desc' : 'asc') }
+  }
+  const SortIcon = ({ col }: { col: SortKey }) => {
+    if (sortKey !== col) return <ArrowUpDown size={12} style={{ opacity: 0.4 }} />
+    return sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+  }
 
   const toggleSelect = (id: number) => {
     const next = new Set(selected)
     if (next.has(id)) next.delete(id); else next.add(id)
     setSelected(next)
   }
-  const selectAll = () => { if (selected.size === events.length) setSelected(new Set()); else setSelected(new Set(events.map(e => e.id))) }
+  // Seleccionar todo = todos los visibles (resultado filtrado), no solo la página
+  const allVisibleSelected = processed.length > 0 && processed.every(e => selected.has(e.id))
+  const selectAllVisible = () => {
+    if (allVisibleSelected) {
+      const next = new Set(selected); processed.forEach(e => next.delete(e.id)); setSelected(next)
+    } else {
+      const next = new Set(selected); processed.forEach(e => next.add(e.id)); setSelected(next)
+    }
+  }
+
+  const openSettlementSummary = async (settlementId: number) => {
+    setDetailLoading(true); setError('')
+    try {
+      const res = await api.get<SettleResult>(`/payroll/settlements/${settlementId}/summary`)
+      setViewingHistory(true)
+      setResult(res.data)
+    } catch (e: any) { setError(e.response?.data?.detail || t('payroll.errorDetail') || 'Error') }
+    finally { setDetailLoading(false) }
+  }
+
+  // ── Anulación ──
+  const startAnnul = (s: Settlement) => {
+    setAnnulTarget(s); setAnnulReason(''); setAnnulConflicts([]); setAnnulConfirmNeeded(false); setError('')
+  }
+  const cancelAnnul = () => {
+    setAnnulTarget(null); setAnnulReason(''); setAnnulConflicts([]); setAnnulConfirmNeeded(false)
+  }
+  const doAnnul = async (confirm: boolean) => {
+    if (!annulTarget) return
+    setAnnulling(true); setError('')
+    try {
+      await api.post(`/payroll/settlements/${annulTarget.id}/annul`, { confirm, reason: annulReason || null })
+      cancelAnnul()
+      await loadAll(true)
+    } catch (e: any) {
+      const detail = e.response?.data?.detail
+      // 409 con conflictos de semanas: mostrar alerta y pedir confirmación
+      if (e.response?.status === 409 && detail?.code === 'later_settlements_exist') {
+        setAnnulConflicts(detail.conflicts || [])
+        setAnnulConfirmNeeded(true)
+      } else {
+        setError(typeof detail === 'string' ? detail : (t('payroll.errorAnnul') || 'Error al anular'))
+      }
+    } finally { setAnnulling(false) }
+  }
 
   const openDetail = async (id: number) => {
     setDetailLoading(true)
     try { const res = await api.get<EventDetail>(`/payroll/events/${id}/detail`); setDetailEvent(res.data) }
-    catch { setError('Error loading detail') }
+    catch { setError(t('payroll.errorDetail') || 'Error cargando detalle') }
     finally { setDetailLoading(false) }
   }
 
-  const handleSettle = async () => {
-    if (selected.size === 0) { setError(t('payroll.selectAtLeastOne')); return }
-    if (!confirm(t('payroll.confirmSettle'))) return
+  const doSettle = async () => {
+    setConfirmSettle(false)
     setSettling(true); setError(''); setResult(null)
     try {
       const res = await api.post<SettleResult>('/payroll/settle', { event_ids: Array.from(selected) })
-      setResult(res.data)
+      setViewingHistory(false)
+      setResult(res.data)        // dispara el modal de resumen
       setSelected(new Set())
-      // Reload events
-      const evRes = await api.get<FinishedEvent[]>('/payroll/finished-events')
-      setEvents(evRes.data)
-      const setRes = await api.get<Settlement[]>('/payroll/settlements')
-      setSettlements(setRes.data)
-    } catch (e: any) { setError(e.response?.data?.detail || 'Error') }
+      await loadAll(true)
+    } catch (e: any) { setError(e.response?.data?.detail || t('common.error') || 'Error') }
     finally { setSettling(false) }
+  }
+
+  const handleSettleClick = () => {
+    if (selected.size === 0) { setError(t('payroll.selectAtLeastOne')); return }
+    setError(''); setConfirmSettle(true)
   }
 
   if (loading) return <p style={{ color: '#9ca3af', fontSize: '13px' }}>{t('common.loading')}</p>
 
+  const presets = getDatePresets(t)
+
   return (
-    <div style={{ maxWidth: '900px', fontFamily: "'Poppins',sans-serif" }}>
+    <div style={{ maxWidth: '960px', fontFamily: "'Poppins',sans-serif" }}>
+      {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>{t('payroll.title')}</h2>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => setShowHistory(!showHistory)} style={{ padding: '8px 14px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: '#374151', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
-            {showHistory ? t('payroll.showEvents') : t('payroll.history')}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button onClick={() => loadAll(true)} disabled={refreshing} title={t('payroll.refresh') || 'Recargar'}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: refreshing ? 'default' : 'pointer', color: '#6b7280' }}>
+            <RefreshCw size={16} style={{ animation: refreshing ? 'pl-spin 0.8s linear infinite' : 'none' }} />
           </button>
-          <button onClick={handleSettle} disabled={settling || selected.size === 0}
-            style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: selected.size === 0 ? '#e5e7eb' : `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: selected.size === 0 ? '#9ca3af' : '#fff', fontSize: '13px', fontWeight: 700, cursor: selected.size === 0 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
-            <DollarSign size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
-            {settling ? t('payroll.settling') : `${t('payroll.settle')} (${selected.size})`}
-          </button>
+          {activeTab === 'events' && (
+            <button onClick={handleSettleClick} disabled={settling || selected.size === 0}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 18px', borderRadius: '8px', border: 'none', background: selected.size === 0 ? '#e5e7eb' : `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: selected.size === 0 ? '#9ca3af' : '#fff', fontSize: '13px', fontWeight: 700, cursor: selected.size === 0 ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+              <DollarSign size={14} />
+              {settling ? t('payroll.settling') : `${t('payroll.settle')} (${selected.size})`}
+            </button>
+          )}
         </div>
       </div>
 
       {error && <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', fontSize: '13px', marginBottom: '12px' }}>⚠ {error}</div>}
 
-      {/* Settlement Result */}
-      {result && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '16px 20px', marginBottom: '16px' }}>
-          <p style={{ margin: '0 0 10px', fontSize: '14px', fontWeight: 700, color: '#15803d' }}>✅ {t('payroll.settleSuccess')}</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginBottom: '12px' }}>
-            <div style={{ padding: '10px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.eventsSettled')}</p>
-              <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: '#111827' }}>{result.events_settled}</p>
-            </div>
-            <div style={{ padding: '10px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.totalRegular')}</p>
-              <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: '#111827' }}>${result.total_regular.toFixed(2)}</p>
-            </div>
-            <div style={{ padding: '10px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.totalOvertime')}</p>
-              <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: '#f59e0b' }}>${result.total_overtime.toFixed(2)}</p>
-            </div>
-            <div style={{ padding: '10px', background: '#fff', borderRadius: '8px', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.totalGeneral')}</p>
-              <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: GREEN_DARK }}>${result.total_general.toFixed(2)}</p>
-            </div>
-          </div>
-          <p style={{ margin: '0 0 6px', fontSize: '12px', fontWeight: 600, color: '#374151' }}>{t('payroll.byRole')}:</p>
-          {result.by_role.map(r => (
-            <div key={r.role} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px', borderBottom: '1px solid #e5e7eb' }}>
-              <span style={{ fontWeight: 600 }}>{r.role}</span>
-              <span>Regular: ${r.regular.toFixed(2)} | OT: ${r.overtime.toFixed(2)} | <strong>${r.total.toFixed(2)}</strong></span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* ── Tabs ── */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid #e5e7eb' }}>
+        {([
+          { key: 'events' as const, label: `${t('payroll.finishedEvents')} (${events.length})` },
+          { key: 'history' as const, label: `${t('payroll.history')} (${settlements.length})` },
+        ]).map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+            style={{ padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, background: 'transparent', color: activeTab === tab.key ? GREEN : '#9ca3af', borderBottom: `2px solid ${activeTab === tab.key ? GREEN : 'transparent'}`, marginBottom: '-1px', fontFamily: "'Poppins',sans-serif" }}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      {/* History */}
-      {showHistory ? (
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #f3f4f6' }}>
-            <p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#111827' }}>{t('payroll.history')} ({settlements.length})</p>
+      {/* ════════ TAB EVENTOS ════════ */}
+      {activeTab === 'events' && (
+        <>
+          {/* Filtros */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t('payroll.searchEvent') || 'Buscar evento por nombre...'} style={{ ...fieldStyle, width: '100%', paddingLeft: '32px' }} />
+            </div>
           </div>
-          {settlements.length === 0 ? (
-            <p style={{ padding: '20px', color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>{t('payroll.noSettlements')}</p>
-          ) : settlements.map(s => (
-            <div key={s.id} style={{ padding: '12px 18px', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>#{s.id} · {s.period_start} — {s.period_end}</p>
-                <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{s.employees_count} {t('payroll.employees')} · {s.shifts_count} {t('payroll.shifts')} · {s.creator_name}</p>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px', alignItems: 'center' }}>
+            <Calendar size={14} color="#9ca3af" />
+            {presets.map(p => (
+              <button key={p.key} onClick={() => setDatePreset(p.key)}
+                style={{ padding: '5px 12px', borderRadius: '999px', border: `1.5px solid ${datePreset === p.key ? GREEN : '#e5e7eb'}`, background: datePreset === p.key ? '#f0fdf4' : '#fff', color: datePreset === p.key ? GREEN_DARK : '#6b7280', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                {p.label}
+              </button>
+            ))}
+            {datePreset === 'range' && (
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ ...fieldStyle, height: '32px' }} />
+                <span style={{ color: '#9ca3af', fontSize: '12px' }}>—</span>
+                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...fieldStyle, height: '32px' }} />
               </div>
-              <span style={{ fontSize: '15px', fontWeight: 700, color: GREEN_DARK }}>${s.total_amount.toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        /* Events List */
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 18px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#111827' }}>{t('payroll.finishedEvents')} ({events.length})</p>
-            <button onClick={selectAll} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: GREEN, fontWeight: 600, fontFamily: "'Poppins',sans-serif" }}>
-              {selected.size === events.length ? <CheckSquare size={14} /> : <Square size={14} />}
-              {t('payroll.selectAll')}
-            </button>
+            )}
           </div>
-          {events.length === 0 ? (
-            <p style={{ padding: '30px', color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>{t('payroll.noFinishedEvents')}</p>
-          ) : (
-            <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-              {events.map(ev => (
-                <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 18px', borderBottom: '1px solid #f3f4f6' }}>
-                  <input type="checkbox" checked={selected.has(ev.id)} onChange={() => toggleSelect(ev.id)} style={{ width: '16px', height: '16px', accentColor: GREEN, cursor: 'pointer' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.name}</p>
-                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{ev.event_code && `#${ev.event_code} · `}{ev.event_date} · {ev.city}</p>
-                  </div>
-                  <button onClick={() => openDetail(ev.id)} style={{ padding: '5px 10px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', fontWeight: 600 }}>
-                    <Eye size={13} />{t('common.view') || 'Ver'}
-                  </button>
-                </div>
-              ))}
+
+          {/* Tabla */}
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+              <button onClick={selectAllVisible} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: GREEN, fontWeight: 600, fontFamily: "'Poppins',sans-serif" }}>
+                {allVisibleSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+                {t('payroll.selectAll')} ({processed.length})
+              </button>
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{selected.size} {t('payroll.selected') || 'seleccionados'}</span>
             </div>
-          )}
-        </div>
+
+            {processed.length === 0 ? (
+              <p style={{ padding: '30px', color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>{t('payroll.noFinishedEvents')}</p>
+            ) : (
+              <>
+                {/* Cabecera de columnas */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 16px', background: '#f9fafb', borderBottom: '1px solid #f3f4f6', fontSize: '11px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>
+                  <span style={{ width: '16px' }} />
+                  <button onClick={() => toggleSort('name')} style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', color: 'inherit', padding: 0, textTransform: 'uppercase' }}>
+                    {t('payroll.colEvent') || 'Evento'} <SortIcon col="name" />
+                  </button>
+                  <button onClick={() => toggleSort('event_date')} style={{ width: '110px', display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', color: 'inherit', padding: 0, textTransform: 'uppercase' }}>
+                    {t('payroll.colDate') || 'Fecha'} <SortIcon col="event_date" />
+                  </button>
+                  <button onClick={() => toggleSort('city')} style={{ width: '110px', display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', color: 'inherit', padding: 0, textTransform: 'uppercase' }}>
+                    {t('payroll.colCity') || 'Ciudad'} <SortIcon col="city" />
+                  </button>
+                  <span style={{ width: '60px' }} />
+                </div>
+
+                {/* Filas */}
+                {paginated.map(ev => (
+                  <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderBottom: '1px solid #f3f4f6', background: selected.has(ev.id) ? '#f0fdf4' : '#fff' }}>
+                    <input type="checkbox" checked={selected.has(ev.id)} onChange={() => toggleSelect(ev.id)} style={{ width: '16px', height: '16px', accentColor: GREEN, cursor: 'pointer', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.name}</p>
+                      {ev.event_code && <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>#{ev.event_code}</p>}
+                    </div>
+                    <span style={{ width: '110px', fontSize: '12px', color: '#374151', flexShrink: 0 }}>{ev.event_date}</span>
+                    <span style={{ width: '110px', fontSize: '12px', color: '#6b7280', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.city || '—'}</span>
+                    <button onClick={() => openDetail(ev.id)} style={{ width: '60px', padding: '5px 8px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: 'pointer', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', fontSize: '11px', fontWeight: 600, flexShrink: 0 }}>
+                      <Eye size={13} />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Footer paginación */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', color: '#6b7280' }}>{t('payroll.rowsPerPage') || 'Filas'}:</span>
+                    {[10, 25, 50].map(size => (
+                      <button key={size} onClick={() => setPageSize(size)}
+                        style={{ padding: '4px 10px', borderRadius: '6px', border: `1.5px solid ${pageSize === size ? GREEN : '#e5e7eb'}`, background: pageSize === size ? '#f0fdf4' : '#fff', color: pageSize === size ? GREEN_DARK : '#6b7280', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', color: '#6b7280' }}>
+                      {(pageClamped - 1) * pageSize + 1}–{Math.min(pageClamped * pageSize, processed.length)} {t('payroll.of') || 'de'} {processed.length}
+                    </span>
+                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageClamped <= 1}
+                      style={{ width: '30px', height: '30px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: pageClamped <= 1 ? 'not-allowed' : 'pointer', opacity: pageClamped <= 1 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={15} /></button>
+                    <span style={{ fontSize: '12px', color: '#374151', fontWeight: 600 }}>{pageClamped} / {totalPages}</span>
+                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageClamped >= totalPages}
+                      style={{ width: '30px', height: '30px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: pageClamped >= totalPages ? 'not-allowed' : 'pointer', opacity: pageClamped >= totalPages ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronRight size={15} /></button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </>
       )}
 
-      {/* Detail Modal */}
+      {/* ════════ TAB HISTORIAL ════════ */}
+      {activeTab === 'history' && (
+        <>
+          {/* Búsqueda del historial */}
+          <div style={{ position: 'relative', maxWidth: '320px', marginBottom: '12px' }}>
+            <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+            <input value={histSearch} onChange={e => setHistSearch(e.target.value)} placeholder={t('payroll.searchSettlement') || 'Buscar por #, periodo o autor...'} style={{ ...fieldStyle, width: '100%', paddingLeft: '32px' }} />
+          </div>
+
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
+            {histFiltered.length === 0 ? (
+              <p style={{ padding: '30px', color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>{t('payroll.noSettlements')}</p>
+            ) : (
+              <>
+                {histPaginated.map(s => {
+                  const isAnnulled = s.status === 'anulado'
+                  return (
+                    <div key={s.id} style={{ padding: '12px 18px', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', opacity: isAnnulled ? 0.7 : 1 }}>
+                      <div onClick={() => openSettlementSummary(s.id)} style={{ minWidth: 0, flex: 1, cursor: 'pointer' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827', textDecoration: isAnnulled ? 'line-through' : 'none' }}>#{s.id} · {s.period_start} — {s.period_end}</p>
+                          {isAnnulled
+                            ? <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#fef2f2', color: '#dc2626' }}>{t('payroll.statusAnnulled') || 'Anulada'}</span>
+                            : <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', background: '#f0fdf4', color: '#15803d' }}>{t('payroll.statusSettled') || 'Liquidada'}</span>}
+                        </div>
+                        <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#9ca3af' }}>
+                          {s.employees_count} {t('payroll.employees')} · {s.shifts_count} {t('payroll.shifts')}{s.creator_name ? ` · ${s.creator_name}` : ''}
+                          {isAnnulled && s.annuller_name ? ` · ${t('payroll.annulledBy') || 'anulada por'} ${s.annuller_name}` : ''}
+                        </p>
+                        {isAnnulled && s.annul_reason && <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#c2410c', fontStyle: 'italic' }}>"{s.annul_reason}"</p>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                        <span style={{ fontSize: '15px', fontWeight: 700, color: isAnnulled ? '#9ca3af' : GREEN_DARK, textDecoration: isAnnulled ? 'line-through' : 'none' }}>${s.total_amount.toFixed(2)}</span>
+                        <button onClick={() => openSettlementSummary(s.id)} title={t('payroll.viewSummary') || 'Ver resumen'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '2px' }}><Eye size={15} /></button>
+                        {!isAnnulled && (
+                          <button onClick={() => startAnnul(s)} title={t('payroll.annul') || 'Anular'} style={{ background: 'none', border: '1.5px solid #fecaca', borderRadius: '6px', cursor: 'pointer', color: '#dc2626', padding: '4px 8px', fontSize: '11px', fontWeight: 600, fontFamily: "'Poppins',sans-serif" }}>
+                            {t('payroll.annul') || 'Anular'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                {/* Footer paginación historial */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', color: '#6b7280' }}>{t('payroll.rowsPerPage') || 'Filas'}:</span>
+                    {[10, 25, 50].map(size => (
+                      <button key={size} onClick={() => setHistPageSize(size)}
+                        style={{ padding: '4px 10px', borderRadius: '6px', border: `1.5px solid ${histPageSize === size ? GREEN : '#e5e7eb'}`, background: histPageSize === size ? '#f0fdf4' : '#fff', color: histPageSize === size ? GREEN_DARK : '#6b7280', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', color: '#6b7280' }}>
+                      {(histPageClamped - 1) * histPageSize + 1}–{Math.min(histPageClamped * histPageSize, histFiltered.length)} {t('payroll.of') || 'de'} {histFiltered.length}
+                    </span>
+                    <button onClick={() => setHistPage(p => Math.max(1, p - 1))} disabled={histPageClamped <= 1}
+                      style={{ width: '30px', height: '30px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: histPageClamped <= 1 ? 'not-allowed' : 'pointer', opacity: histPageClamped <= 1 ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={15} /></button>
+                    <span style={{ fontSize: '12px', color: '#374151', fontWeight: 600 }}>{histPageClamped} / {histTotalPages}</span>
+                    <button onClick={() => setHistPage(p => Math.min(histTotalPages, p + 1))} disabled={histPageClamped >= histTotalPages}
+                      style={{ width: '30px', height: '30px', borderRadius: '6px', border: '1.5px solid #e5e7eb', background: '#fff', cursor: histPageClamped >= histTotalPages ? 'not-allowed' : 'pointer', opacity: histPageClamped >= histTotalPages ? 0.4 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronRight size={15} /></button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ════════ MODAL: ANULAR LIQUIDACIÓN ════════ */}
+      {annulTarget && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60 }} onClick={cancelAnnul} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '90%', maxWidth: '460px', maxHeight: '85vh', overflow: 'auto', background: '#fff', borderRadius: '16px', zIndex: 61, padding: '22px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#111827' }}>{t('payroll.annulTitle') || 'Anular liquidación'} #{annulTarget.id}</h3>
+              <button onClick={cancelAnnul} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={18} /></button>
+            </div>
+
+            <p style={{ margin: '0 0 14px', fontSize: '13px', color: '#6b7280', lineHeight: 1.5 }}>
+              {t('payroll.annulExplain') || 'Los eventos volverán a estado finalizado y podrán liquidarse de nuevo. La liquidación quedará registrada como anulada.'}
+            </p>
+
+            {/* Alerta de conflicto de semanas */}
+            {annulConfirmNeeded && annulConflicts.length > 0 && (
+              <div style={{ padding: '12px 14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', marginBottom: '14px' }}>
+                <p style={{ margin: '0 0 6px', fontSize: '12px', fontWeight: 700, color: '#c2410c' }}>⚠ {t('payroll.annulWarnTitle') || 'Atención: liquidaciones posteriores'}</p>
+                <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#9a3412', lineHeight: 1.5 }}>
+                  {t('payroll.annulWarnMsg') || 'Existen liquidaciones posteriores en las mismas semanas. Su cálculo de horas extra podría quedar inconsistente. Revísalas y re-liquida si es necesario.'}
+                </p>
+                {annulConflicts.map(c => (
+                  <div key={c.id} style={{ fontSize: '11px', color: '#9a3412', padding: '2px 0' }}>
+                    · #{c.id} ({c.period_start} — {c.period_end}) · ${c.total_amount.toFixed(2)}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#6b7280', display: 'block', marginBottom: '4px' }}>{t('payroll.annulReason') || 'Motivo (opcional)'}</label>
+            <textarea value={annulReason} onChange={e => setAnnulReason(e.target.value)} rows={2}
+              placeholder={t('payroll.annulReasonPlaceholder') || 'Ej: error en horas de un empleado'}
+              style={{ width: '100%', background: '#f9fafb', border: '1.5px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', padding: '8px 10px', outline: 'none', fontFamily: "'Poppins',sans-serif", resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box' }} />
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={cancelAnnul} style={{ padding: '8px 16px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                {t('common.cancel') || 'Cancelar'}
+              </button>
+              <button onClick={() => doAnnul(annulConfirmNeeded)} disabled={annulling}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#dc2626', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: annulling ? 'default' : 'pointer', opacity: annulling ? 0.7 : 1, fontFamily: "'Poppins',sans-serif" }}>
+                {annulling ? (t('payroll.annulling') || 'Anulando...') : annulConfirmNeeded ? (t('payroll.annulConfirmAnyway') || 'Anular de todos modos') : (t('payroll.annul') || 'Anular')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ════════ MODAL: CONFIRMAR LIQUIDACIÓN ════════ */}
+      {confirmSettle && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60 }} onClick={() => setConfirmSettle(false)} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '90%', maxWidth: '400px', background: '#fff', borderRadius: '16px', zIndex: 61, padding: '22px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700, color: '#111827' }}>{t('payroll.confirmTitle') || '¿Liquidar eventos?'}</h3>
+            <p style={{ margin: '0 0 18px', fontSize: '13px', color: '#6b7280', lineHeight: 1.5 }}>
+              {(t('payroll.confirmMsg') || 'Se liquidarán {count} evento(s). Esta acción no se puede deshacer.').replace('{count}', String(selected.size))}
+            </p>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmSettle(false)} style={{ padding: '8px 16px', borderRadius: '8px', border: '1.5px solid #e5e7eb', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                {t('common.cancel') || 'Cancelar'}
+              </button>
+              <button onClick={doSettle} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                {t('payroll.settle')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ════════ MODAL: RESUMEN DE LIQUIDACIÓN ════════ */}
+      {result && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60 }} onClick={() => { setResult(null); setViewingHistory(false) }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '90%', maxWidth: '560px', maxHeight: '85vh', overflow: 'auto', background: '#fff', borderRadius: '16px', zIndex: 61, padding: '22px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <p style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: viewingHistory ? '#111827' : '#15803d' }}>
+                {viewingHistory
+                  ? `${t('payroll.summaryTitle') || 'Resumen de liquidación'} #${result.settlement_id}`
+                  : `✅ ${t('payroll.settleSuccess')}`}
+              </p>
+              <button onClick={() => { setResult(null); setViewingHistory(false) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={18} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ padding: '12px', background: '#f9fafb', borderRadius: '10px', textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.eventsSettled')}</p>
+                <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: '#111827' }}>{result.events_settled}</p>
+              </div>
+              <div style={{ padding: '12px', background: '#f9fafb', borderRadius: '10px', textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.totalRegular')}</p>
+                <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: '#111827' }}>${result.total_regular.toFixed(2)}</p>
+              </div>
+              <div style={{ padding: '12px', background: '#f9fafb', borderRadius: '10px', textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.totalOvertime')}</p>
+                <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: '#f59e0b' }}>${result.total_overtime.toFixed(2)}</p>
+              </div>
+              <div style={{ padding: '12px', background: '#f0fdf4', borderRadius: '10px', textAlign: 'center', border: '1px solid #bbf7d0' }}>
+                <p style={{ margin: 0, fontSize: '10px', color: '#6b7280', textTransform: 'uppercase' }}>{t('payroll.totalGeneral')}</p>
+                <p style={{ margin: '4px 0 0', fontSize: '20px', fontWeight: 800, color: GREEN_DARK }}>${result.total_general.toFixed(2)}</p>
+              </div>
+            </div>
+            <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: 700, color: '#374151', textTransform: 'uppercase' }}>{t('payroll.byRole')}</p>
+            {result.by_role.map(r => (
+              <div key={r.role} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', fontSize: '12px', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontWeight: 600, color: '#111827' }}>{r.role}</span>
+                <span style={{ color: '#6b7280' }}>
+                  Reg: ${r.regular.toFixed(2)} · OT: ${r.overtime.toFixed(2)} · <strong style={{ color: GREEN_DARK }}>${r.total.toFixed(2)}</strong>
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ════════ MODAL: DETALLE DE EVENTO ════════ */}
       {detailEvent && (
         <>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50 }} onClick={() => setDetailEvent(null)} />
@@ -197,6 +596,8 @@ export default function PayrollPage() {
         </>
       )}
       {detailLoading && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ background: '#fff', padding: '20px', borderRadius: '12px' }}>{t('common.loading')}</div></div>}
+
+      <style>{`@keyframes pl-spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }
