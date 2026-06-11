@@ -1,5 +1,15 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
+
+/* Poppins autoalojada (antes venía de Google Fonts vía CDN, lo que fallaba en
+   redes que bloquean fonts.googleapis.com / fonts.gstatic.com). Requiere:
+   npm install @fontsource/poppins */
+@import '@fontsource/poppins/300.css';
+@import '@fontsource/poppins/400.css';
+@import '@fontsource/poppins/500.css';
+@import '@fontsource/poppins/600.css';
+@import '@fontsource/poppins/700.css';
+@import '@fontsource/poppins/800.css';
+@import '@fontsource/poppins/900.css';
 
 /* ============================================================
    TEMA: Kalirio Light Premium
