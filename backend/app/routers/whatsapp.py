@@ -198,8 +198,138 @@ async def whatsapp_webhook(
         return twiml_response(msg)
 
     # Help command
-    if message.lower() in ["help", "ayuda", "hola", "hi", "hello", "start", "/start"]:
+    if message.lower() in ["help", "ayuda", "hola", "hi", "hello", "/start"]:
         return twiml_response(HELP_EN if language == "en" else HELP_ES)
+
+    # ── CLOCK IN / CLOCK OUT via WhatsApp ────────────────────────────────────
+    clock_in_keywords = {"inicio", "iniciar", "start", "clock in", "clockin", "entrada"}
+    clock_out_keywords = {"finalizar", "finish", "terminar", "clock out", "clockout", "fin", "salida"}
+
+    if msg_lower in clock_in_keywords or msg_lower in clock_out_keywords:
+        from app.models import EventAssignment, Shift, Event as EventModel
+        from app.models import EventJobRole as EJR, JobRole as JR
+        from decimal import Decimal
+        from datetime import datetime as dt_class
+
+        # Find employee by phone
+        emp_result = await db.execute(
+            select(User).where(
+                User.is_active == True,
+                User.phone.in_([phone_raw, phone_digits, f"+{phone_digits}"])
+            ).limit(1)
+        )
+        emp = emp_result.scalar_one_or_none()
+        if not emp:
+            return twiml_response("❌ Tu número no está registrado." if language == "es" else "❌ Your number is not registered.")
+
+        first_name = emp.name.split()[0].capitalize() if emp.name else ""
+        now = dt_class.utcnow()
+
+        if msg_lower in clock_in_keywords:
+            # Find approved assignment for today without a shift
+            from datetime import date as date_type
+            today = date_type.today()
+            assignments_result = await db.execute(
+                select(EventAssignment, EventModel)
+                .join(EventModel, EventAssignment.event_id == EventModel.id)
+                .where(
+                    EventAssignment.user_id == emp.id,
+                    EventAssignment.status == "approved",
+                    EventModel.event_date == today,
+                )
+            )
+            assignments = assignments_result.all()
+
+            # Find one without a shift
+            target_assignment = None
+            for assignment, event_obj in assignments:
+                shift_check = await db.execute(select(Shift).where(Shift.assignment_id == assignment.id))
+                if not shift_check.scalar_one_or_none():
+                    target_assignment = assignment
+                    break
+
+            if not target_assignment:
+                return twiml_response(
+                    f"⚠️ {first_name}, no tienes turnos pendientes de iniciar hoy." if language == "es"
+                    else f"⚠️ {first_name}, you have no shifts to start today."
+                )
+
+            # Get hourly rate
+            role = await db.get(JR, target_assignment.job_role_id)
+            hourly_rate = role.hourly_rate if role else Decimal("0")
+            if target_assignment.event_job_role_id:
+                ejr = await db.get(EJR, target_assignment.event_job_role_id)
+                if ejr and ejr.hourly_rate_override:
+                    hourly_rate = ejr.hourly_rate_override
+
+            # Create shift
+            shift = Shift(
+                assignment_id=target_assignment.id,
+                clock_in=now,
+                clock_in_lat=Decimal("0"),
+                clock_in_lng=Decimal("0"),
+                hourly_rate_snapshot=hourly_rate,
+                is_paused=False,
+                total_pause_minutes=Decimal("0"),
+            )
+            db.add(shift)
+            await db.flush()
+
+            # Update event status to started
+            ev = await db.get(EventModel, target_assignment.event_id)
+            if ev and ev.status in ("published", "filled", "filled_pending"):
+                ev.status = "started"
+                await db.flush()
+
+            time_str = now.strftime("%I:%M %p")
+            return twiml_response(
+                f"✅ *Turno iniciado*, {first_name}!\n🕐 Hora: {time_str}\n\nCuando termines, envía *finalizar*."
+                if language == "es" else
+                f"✅ *Shift started*, {first_name}!\n🕐 Time: {time_str}\n\nWhen done, send *finish*."
+            )
+
+        else:
+            # Clock out - find active shift (has clock_in but no clock_out)
+            active_shift_result = await db.execute(
+                select(Shift, EventAssignment)
+                .join(EventAssignment, Shift.assignment_id == EventAssignment.id)
+                .where(
+                    EventAssignment.user_id == emp.id,
+                    Shift.clock_in.isnot(None),
+                    Shift.clock_out.is_(None),
+                )
+                .order_by(Shift.clock_in.desc())
+                .limit(1)
+            )
+            row = active_shift_result.first()
+            if not row:
+                return twiml_response(
+                    f"⚠️ {first_name}, no tienes un turno activo para finalizar." if language == "es"
+                    else f"⚠️ {first_name}, you don't have an active shift to finish."
+                )
+
+            shift, assignment = row
+
+            # Calculate hours
+            gross_seconds = (now - shift.clock_in).total_seconds()
+            hours_worked = Decimal(str(round(gross_seconds / 3600, 2)))
+            pause_hours = Decimal(str(round(float(shift.total_pause_minutes or 0) / 60, 4)))
+            net_hours = max(Decimal("0"), hours_worked - pause_hours)
+            total_pay = (net_hours * shift.hourly_rate_snapshot).quantize(Decimal("0.01"))
+
+            shift.clock_out = now
+            shift.hours_worked = net_hours
+            shift.total_pay = total_pay
+            shift.regular_pay = total_pay
+            shift.overtime_pay = Decimal("0")
+            await db.flush()
+
+            time_str = now.strftime("%I:%M %p")
+            return twiml_response(
+                f"✅ *Turno finalizado*, {first_name}!\n🕐 Hora: {time_str}\n⏱ Horas: {net_hours:.2f}h\n💰 Pago: ${total_pay}\n\n¡Gracias por tu trabajo!"
+                if language == "es" else
+                f"✅ *Shift ended*, {first_name}!\n🕐 Time: {time_str}\n⏱ Hours: {net_hours:.2f}h\n💰 Pay: ${total_pay}\n\nThank you for your work!"
+            )
 
     # Find user by phone number — try multiple formats
     user_result = await db.execute(
