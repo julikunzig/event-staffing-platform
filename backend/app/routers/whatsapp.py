@@ -51,7 +51,8 @@ async def whatsapp_webhook(
     phone_digits = phone_raw.lstrip("+")
 
     message = Body.strip()
-    print(f"[WhatsApp] Message from {phone_raw}: {message}")
+    msg_lower = message.lower().strip()
+    print(f"[WhatsApp] Message from {phone_raw}: '{message}' | msg_lower='{msg_lower}'")
 
     # Detect language from message (simple heuristic)
     language = "en" if any(w in message.lower() for w in ["create", "event", "wedding", "party", "the", "and"]) else "es"
@@ -63,8 +64,6 @@ async def whatsapp_webhook(
     import re as _re
     accept_keywords = {"1", "aceptar", "accept", "si", "sí", "yes", "ok", "confirmar", "confirm"}
     reject_keywords = {"2", "rechazar", "reject", "no", "cancelar", "cancel", "declinar", "decline"}
-
-    msg_lower = message.lower().strip()
 
     # Check if message contains assignment ID pattern: "1 123" or "2 123"
     assignment_id_match = _re.match(r'^([12])\s+(\d+)$', msg_lower)
@@ -203,9 +202,10 @@ async def whatsapp_webhook(
 
     # ── CLOCK IN / CLOCK OUT via WhatsApp ────────────────────────────────────
     clock_in_keywords = {"inicio", "iniciar", "start", "clock in", "clockin", "entrada"}
-    clock_out_keywords = {"finalizar", "finish", "terminar", "clock out", "clockout", "fin", "salida"}
+    clock_out_keywords = {"finalizar", "finish", "terminar", "clock out", "clockout", "fin", "salida", "end"}
 
     if msg_lower in clock_in_keywords or msg_lower in clock_out_keywords:
+        print(f"[WhatsApp] CLOCK command detected: '{msg_lower}'")
         from app.models import EventAssignment, Shift, Event as EventModel
         from app.models import EventJobRole as EJR, JobRole as JR
         from decimal import Decimal
