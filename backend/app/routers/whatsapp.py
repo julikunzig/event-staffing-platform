@@ -224,6 +224,9 @@ async def whatsapp_webhook(
 
         first_name = emp.name.split()[0].capitalize() if emp.name else ""
         now = dt_class.utcnow()
+        # Adjust to EDT (UTC-4) for display
+        from datetime import timedelta
+        local_now = now - timedelta(hours=4)
 
         if msg_lower in clock_in_keywords:
             # Find approved assignment for today without a shift
@@ -281,7 +284,7 @@ async def whatsapp_webhook(
                 ev.status = "started"
                 await db.flush()
 
-            time_str = now.strftime("%I:%M %p")
+            time_str = local_now.strftime("%I:%M %p")
             return twiml_response(
                 f"✅ *Turno iniciado*, {first_name}!\n🕐 Hora: {time_str}\n\nCuando termines, envía *finalizar*."
                 if language == "es" else
@@ -324,7 +327,7 @@ async def whatsapp_webhook(
             shift.overtime_pay = Decimal("0")
             await db.flush()
 
-            time_str = now.strftime("%I:%M %p")
+            time_str = local_now.strftime("%I:%M %p")
             return twiml_response(
                 f"✅ *Turno finalizado*, {first_name}!\n🕐 Hora: {time_str}\n⏱ Horas: {net_hours:.2f}h\n💰 Pago: ${total_pay}\n\n¡Gracias por tu trabajo!"
                 if language == "es" else
