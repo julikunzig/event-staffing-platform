@@ -223,10 +223,10 @@ async def whatsapp_webhook(
             return twiml_response("❌ Tu número no está registrado." if language == "es" else "❌ Your number is not registered.")
 
         first_name = emp.name.split()[0].capitalize() if emp.name else ""
-        now = dt_class.utcnow()
-        # Adjust to EDT (UTC-4) for display
+        # Use local time (US Eastern / Miami) for clock-in/clock-out
         from datetime import timedelta
-        local_now = now - timedelta(hours=4)
+        now = dt_class.utcnow() - timedelta(hours=4)  # EDT (UTC-4)
+        local_now = now  # same since now IS already local
 
         if msg_lower in clock_in_keywords:
             # Find approved assignment for today without a shift
