@@ -77,6 +77,8 @@ class ConsolidatedPaymentRow(BaseModel):
     employee_name: str
     phone: str | None = None
     total_hours: Decimal
+    regular_pay: Decimal = Decimal("0")
+    overtime_pay: Decimal = Decimal("0")
     total_pay: Decimal
 
 # ─── Nuevo: Búsqueda de eventos para autocomplete ─────────────────────────────
@@ -596,29 +598,44 @@ async def employees_by_event(current_user: AdminCoordDep, from_date: date = Quer
 @router.get("/consolidated-payments", response_model=list[ConsolidatedPaymentRow])
 @router.get("/payment-consolidation", response_model=list[ConsolidatedPaymentRow])
 async def consolidated_payments(current_user: AdminCoordDep, from_date: date = Query(..., alias="from_date"), to_date: date = Query(..., alias="to_date"), format: str | None = Query(None), db: AsyncSession = Depends(get_db)):
+    """Consolidated payment report from settled (liquidated) events."""
+    from app.models import PayrollSettlement, PayrollSettlementItem
     company_id = current_user["company_id"]
+
+    # Query payroll settlement items for settled events in date range
     result = await db.execute(
-        select(User, EventAssignment, Shift)
-        .join(EventAssignment, EventAssignment.user_id == User.id)
-        .join(Shift, Shift.assignment_id == EventAssignment.id, isouter=True)
-        .join(Event, Event.id == EventAssignment.event_id)
-        .where(EventAssignment.company_id == company_id, EventAssignment.status.in_(("confirmed","completed","approved","finished")), Event.event_date >= from_date, Event.event_date <= to_date)
+        select(User, PayrollSettlementItem)
+        .join(PayrollSettlementItem, PayrollSettlementItem.user_id == User.id)
+        .join(PayrollSettlement, PayrollSettlement.id == PayrollSettlementItem.settlement_id)
+        .where(
+            PayrollSettlement.company_id == company_id,
+            PayrollSettlementItem.week_start >= from_date,
+            PayrollSettlementItem.week_end <= to_date,
+        )
         .order_by(User.name.asc())
     )
     rows = result.all()
-    employees_dict = {}
-    for user, assignment, shift in rows:
+
+    employees_dict: dict[int, dict] = {}
+    for user, item in rows:
         if user.id not in employees_dict:
-            employees_dict[user.id] = {"name": user.name, "phone": user.phone, "total_hours": Decimal("0"), "total_pay": Decimal("0")}
-        if shift:
-            employees_dict[user.id]["total_hours"] += shift.hours_worked or Decimal("0")
-            employees_dict[user.id]["total_pay"] += shift.total_pay or Decimal("0")
-    payments_list = [ConsolidatedPaymentRow(employee_name=emp["name"],phone=emp.get("phone"),total_hours=emp["total_hours"],total_pay=emp["total_pay"]) for emp in employees_dict.values()]
+            employees_dict[user.id] = {"name": user.name, "phone": user.phone, "total_hours": Decimal("0"), "regular_pay": Decimal("0"), "overtime_pay": Decimal("0"), "total_pay": Decimal("0")}
+        employees_dict[user.id]["total_hours"] += item.hours_worked or Decimal("0")
+        employees_dict[user.id]["regular_pay"] += item.regular_pay or Decimal("0")
+        employees_dict[user.id]["overtime_pay"] += item.overtime_pay or Decimal("0")
+        employees_dict[user.id]["total_pay"] += item.total_pay or Decimal("0")
+
+    payments_list = [ConsolidatedPaymentRow(
+        employee_name=emp["name"], phone=emp.get("phone"),
+        total_hours=emp["total_hours"], regular_pay=emp["regular_pay"],
+        overtime_pay=emp["overtime_pay"], total_pay=emp["total_pay"]
+    ) for emp in employees_dict.values()]
+
     if format == "csv":
         output = io.StringIO(); writer = csv.writer(output)
-        writer.writerow(["Empleado","Teléfono","Total Horas","Total a Pagar"])
+        writer.writerow(["Empleado", "Teléfono", "Total Horas", "Pago Regular", "Pago Extras", "Total a Pagar"])
         for row in payments_list:
-            writer.writerow([row.employee_name, row.phone or "", row.total_hours, row.total_pay])
+            writer.writerow([row.employee_name, row.phone or "", row.total_hours, row.regular_pay, row.overtime_pay, row.total_pay])
         output.seek(0)
-        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition":"attachment; filename=consolidated_payments_report.csv"})
+        return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=consolidated_payments_report.csv"})
     return payments_list
