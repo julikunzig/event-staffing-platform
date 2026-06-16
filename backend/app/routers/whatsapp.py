@@ -313,8 +313,9 @@ async def whatsapp_webhook(
 
             shift, assignment = row
 
-            # Calculate hours
-            gross_seconds = (now - shift.clock_in).total_seconds()
+            # Calculate hours - ensure both are naive
+            clock_in_naive = shift.clock_in.replace(tzinfo=None) if shift.clock_in.tzinfo else shift.clock_in
+            gross_seconds = (now - clock_in_naive).total_seconds()
             hours_worked = Decimal(str(round(gross_seconds / 3600, 2)))
             pause_hours = Decimal(str(round(float(shift.total_pause_minutes or 0) / 60, 4)))
             net_hours = max(Decimal("0"), hours_worked - pause_hours)
