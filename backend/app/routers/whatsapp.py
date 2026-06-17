@@ -70,11 +70,17 @@ async def whatsapp_webhook(
 
     if msg_lower in accept_keywords or msg_lower in reject_keywords or assignment_id_match:
         from app.models import EventAssignment, Event as EventModel
-        # Find the user by phone
+        # Find the user by phone - try multiple formats
+        from sqlalchemy import or_
         user_result = await db.execute(
             select(User).where(
                 User.is_active == True,
-                User.phone.in_([phone_raw, phone_digits, f"+{phone_digits}"])
+                or_(
+                    User.phone == phone_raw,
+                    User.phone == phone_digits,
+                    User.phone == f"+{phone_digits}",
+                    User.phone.like(f"%{phone_digits[-10:]}"),  # Last 10 digits
+                )
             ).limit(1)
         )
         emp = user_result.scalar_one_or_none()

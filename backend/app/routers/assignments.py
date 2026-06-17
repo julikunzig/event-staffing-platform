@@ -527,8 +527,8 @@ async def invite_employee(
                     f"👔 Dress code: {event.dress_code or 'No especificado'}\n"
                     f"💼 Rol: {role.name} — ${role.hourly_rate}/hora\n\n"
                     f"Responde con:\n"
-                    f"*1 {assignment.id}* — ✅ Aceptar\n"
-                    f"*2 {assignment.id}* — ❌ Rechazar"
+                    f"*1* — ✅ Aceptar\n"
+                    f"*2* — ❌ Rechazar"
                 )
                 send_whatsapp(employee.phone, wa_msg)
                 print(f"[WhatsApp] Invitation sent to {employee.phone} for assignment {assignment.id}")
@@ -926,8 +926,8 @@ async def bulk_invite(
                     f"👔 Dress code: {task['event_dress_code']}\n"
                     f"💼 Rol: {task['role_name']} — ${task['hourly_rate']}/hora\n\n"
                     f"Responde con:\n"
-                    f"*1 {assignment_obj.id}* — ✅ Aceptar\n"
-                    f"*2 {assignment_obj.id}* — ❌ Rechazar"
+                    f"*1* — ✅ Aceptar\n"
+                    f"*2* — ❌ Rechazar"
                 )
                 send_whatsapp(task["phone"], wa_msg)
                 print(f"[WhatsApp] Invitation sent to {task['phone']} for assignment {assignment_obj.id}")
