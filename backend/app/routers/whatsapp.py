@@ -223,10 +223,9 @@ async def whatsapp_webhook(
             return twiml_response("❌ Tu número no está registrado." if language == "es" else "❌ Your number is not registered.")
 
         first_name = emp.name.split()[0].capitalize() if emp.name else ""
-        # Store in UTC, display in local time (EDT = UTC-4)
+        # Use local time (EDT = UTC-4) for everything - events are in local time
         from datetime import timedelta
-        now = dt_class.utcnow()
-        local_now = now - timedelta(hours=4)  # EDT for display only
+        now = dt_class.utcnow() - timedelta(hours=4)  # Local time (EDT)
 
         if msg_lower in clock_in_keywords:
             # Find approved assignment for today without a shift
@@ -284,7 +283,7 @@ async def whatsapp_webhook(
                 ev.status = "started"
                 await db.flush()
 
-            time_str = local_now.strftime("%I:%M %p")
+            time_str = now.strftime("%I:%M %p")
             return twiml_response(
                 f"✅ *Turno iniciado*, {first_name}!\n🕐 Hora: {time_str}\n\nCuando termines, envía *finalizar*."
                 if language == "es" else
@@ -313,12 +312,25 @@ async def whatsapp_webhook(
 
             shift, assignment = row
 
-            # Calculate hours - ensure both are naive
-            clock_in_naive = shift.clock_in.replace(tzinfo=None) if shift.clock_in.tzinfo else shift.clock_in
+            # Get company config for min_shift_hours
+            from app.models import WeeklyHoursConfig
+            ev_for_config = await db.get(EventModel, assignment.event_id)
+            company_id_emp = assignment.company_id
+            config_r = await db.execute(select(WeeklyHoursConfig).where(WeeklyHoursConfig.company_id == company_id_emp))
+            config_obj = config_r.scalar_one_or_none()
+            min_shift = float(config_obj.min_shift_hours) if config_obj else 0.0
+
+            # Calculate hours - ensure both are naive local time
+            clock_in_naive = shift.clock_in.replace(tzinfo=None) if shift.clock_in and shift.clock_in.tzinfo else shift.clock_in
             gross_seconds = (now - clock_in_naive).total_seconds()
-            hours_worked = Decimal(str(round(gross_seconds / 3600, 2)))
+            hours_worked = Decimal(str(round(max(gross_seconds / 3600, 0), 2)))
             pause_hours = Decimal(str(round(float(shift.total_pause_minutes or 0) / 60, 4)))
             net_hours = max(Decimal("0"), hours_worked - pause_hours)
+
+            # Apply minimum shift hours
+            if float(net_hours) < min_shift and min_shift > 0:
+                net_hours = Decimal(str(min_shift))
+
             total_pay = (net_hours * shift.hourly_rate_snapshot).quantize(Decimal("0.01"))
 
             shift.clock_out = now
@@ -328,11 +340,12 @@ async def whatsapp_webhook(
             shift.overtime_pay = Decimal("0")
             await db.flush()
 
-            time_str = local_now.strftime("%I:%M %p")
+            time_str = now.strftime("%I:%M %p")
+            min_msg = f"\n📋 Mínimo aplicado: {min_shift}h" if float(net_hours) == min_shift and min_shift > 0 and float(hours_worked - pause_hours) < min_shift else ""
             return twiml_response(
-                f"✅ *Turno finalizado*, {first_name}!\n🕐 Hora: {time_str}\n⏱ Horas: {net_hours:.2f}h\n💰 Pago: ${total_pay}\n\n¡Gracias por tu trabajo!"
+                f"✅ *Turno finalizado*, {first_name}!\n🕐 Hora: {time_str}\n⏱ Horas: {net_hours:.2f}h\n💰 Pago: ${total_pay}{min_msg}\n\n¡Gracias por tu trabajo!"
                 if language == "es" else
-                f"✅ *Shift ended*, {first_name}!\n🕐 Time: {time_str}\n⏱ Hours: {net_hours:.2f}h\n💰 Pay: ${total_pay}\n\nThank you for your work!"
+                f"✅ *Shift ended*, {first_name}!\n🕐 Time: {time_str}\n⏱ Hours: {net_hours:.2f}h\n💰 Pay: ${total_pay}{min_msg}\n\nThank you for your work!"
             )
 
     # Find user by phone number — try multiple formats
