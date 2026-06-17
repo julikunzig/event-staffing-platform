@@ -284,6 +284,7 @@ async def whatsapp_webhook(
                 ev.status = "started"
                 await db.flush()
 
+            await db.commit()
             time_str = now.strftime("%I:%M %p")
             return twiml_response(
                 f"✅ *Turno iniciado*, {first_name}!\n🕐 Hora: {time_str}\n\nCuando termines, envía *finalizar*."
@@ -340,6 +341,7 @@ async def whatsapp_webhook(
             shift.regular_pay = total_pay
             shift.overtime_pay = Decimal("0")
             await db.flush()
+            await db.commit()
 
             time_str = now.strftime("%I:%M %p")
             min_msg = f"\n📋 Mínimo aplicado: {min_shift}h" if float(net_hours) == min_shift and min_shift > 0 and float(hours_worked - pause_hours) < min_shift else ""
