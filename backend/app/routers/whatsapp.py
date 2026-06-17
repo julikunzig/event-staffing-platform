@@ -224,9 +224,11 @@ async def whatsapp_webhook(
             return twiml_response("❌ Tu número no está registrado." if language == "es" else "❌ Your number is not registered.")
 
         first_name = emp.name.split()[0].capitalize() if emp.name else ""
-        # Use local time (EDT = UTC-4) for everything - events are in local time
+        # Use UTC for storage (consistent with rest of app), local time for display
         from datetime import timedelta
-        now = dt_class.utcnow() - timedelta(hours=4)  # Local time (EDT)
+        now = dt_class.utcnow()
+        # Display time in EDT (UTC-4) for WhatsApp messages
+        display_time = (now - timedelta(hours=4)).strftime("%I:%M %p")
 
         if msg_lower in clock_in_keywords:
             # Find approved assignment for today without a shift
@@ -285,11 +287,10 @@ async def whatsapp_webhook(
                 await db.flush()
 
             await db.commit()
-            time_str = now.strftime("%I:%M %p")
             return twiml_response(
-                f"✅ *Turno iniciado*, {first_name}!\n🕐 Hora: {time_str}\n\nCuando termines, envía *finalizar*."
+                f"✅ *Turno iniciado*, {first_name}!\n🕐 Hora: {display_time}\n\nCuando termines, envía *finalizar*."
                 if language == "es" else
-                f"✅ *Shift started*, {first_name}!\n🕐 Time: {time_str}\n\nWhen done, send *finish*."
+                f"✅ *Shift started*, {first_name}!\n🕐 Time: {display_time}\n\nWhen done, send *finish*."
             )
 
         else:
@@ -343,12 +344,11 @@ async def whatsapp_webhook(
             await db.flush()
             await db.commit()
 
-            time_str = now.strftime("%I:%M %p")
             min_msg = f"\n📋 Mínimo aplicado: {min_shift}h" if float(net_hours) == min_shift and min_shift > 0 and float(hours_worked - pause_hours) < min_shift else ""
             return twiml_response(
-                f"✅ *Turno finalizado*, {first_name}!\n🕐 Hora: {time_str}\n⏱ Horas: {net_hours:.2f}h\n💰 Pago: ${total_pay}{min_msg}\n\n¡Gracias por tu trabajo!"
+                f"✅ *Turno finalizado*, {first_name}!\n🕐 Hora: {display_time}\n⏱ Horas: {net_hours:.2f}h\n💰 Pago: ${total_pay}{min_msg}\n\n¡Gracias por tu trabajo!"
                 if language == "es" else
-                f"✅ *Shift ended*, {first_name}!\n🕐 Time: {time_str}\n⏱ Hours: {net_hours:.2f}h\n💰 Pay: ${total_pay}{min_msg}\n\nThank you for your work!"
+                f"✅ *Shift ended*, {first_name}!\n🕐 Time: {display_time}\n⏱ Hours: {net_hours:.2f}h\n💰 Pay: ${total_pay}{min_msg}\n\nThank you for your work!"
             )
 
     # Find user by phone number — try multiple formats
