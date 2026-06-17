@@ -140,6 +140,7 @@ async def apply_to_event(
                 Event.company_id == company_id,
                 Event.event_date == event.event_date,
                 Event.id != event_id,
+                Event.status.notin_(["finished", "settled", "cancelled"]),
             )
         )
         same_day_events_list = same_day_events.scalars().all()
@@ -294,6 +295,7 @@ async def direct_assign(
                 Event.company_id == company_id,
                 Event.event_date == event.event_date,
                 Event.id != event_id,
+                Event.status.notin_(["finished", "settled", "cancelled"]),
             )
         )
         same_day_events_list = same_day_events.scalars().all()
@@ -440,6 +442,7 @@ async def invite_employee(
                 Event.company_id == company_id,
                 Event.event_date == event.event_date,
                 Event.id != event_id,
+                Event.status.notin_(["finished", "settled", "cancelled"]),
             )
         )
         same_day_events_list = same_day_events.scalars().all()
@@ -582,6 +585,7 @@ async def approve_assignment(
                     Event.company_id == company_id,
                     Event.event_date == event.event_date,
                     Event.id != assignment.event_id,
+                    Event.status.notin_(["finished", "settled", "cancelled"]),
                 )
             )
             same_day_events_list = same_day_events.scalars().all()
@@ -779,6 +783,7 @@ async def bulk_invite(
                     Event.company_id == company_id,
                     Event.event_date == event.event_date,
                     Event.id != event_id,
+                    Event.status.notin_(["finished", "settled", "cancelled"]),
                 )
             )
             same_day_events_list = same_day_events.scalars().all()
@@ -983,6 +988,7 @@ async def accept_invitation(
                     Event.company_id == company_id,
                     Event.event_date == event.event_date,
                     Event.id != assignment.event_id,
+                    Event.status.notin_(["finished", "settled", "cancelled"]),
                 )
             )
             same_day_events_list = same_day_events.scalars().all()
