@@ -115,16 +115,11 @@ async def whatsapp_webhook(
 
         if action == "accept":
             assignment.status = "approved"
+            await db.flush()
+            # Update event status (will set to "filled" if all slots are filled)
+            from app.services.event_status import check_and_update_event_status
+            await check_and_update_event_status(assignment.event_id, db)
             await db.commit()
-            # Update slots_filled
-            from app.models import EventJobRole as EJR
-            ejr_result = await db.execute(
-                select(EJR).where(EJR.event_id == assignment.event_id, EJR.job_role_id == assignment.job_role_id)
-            )
-            ejr = ejr_result.scalar_one_or_none()
-            if ejr and ejr.slots_filled < ejr.slots_required:
-                ejr.slots_filled += 1
-                await db.commit()
             msg = (
                 f"✅ ¡Perfecto {first_name}! Has *aceptado* la invitación para el evento *{event_name}*.\n"
                 f"Te esperamos. ¡Hasta pronto! 🎉"
@@ -230,7 +225,7 @@ async def whatsapp_webhook(
         if msg_lower in clock_in_keywords:
             # Find approved assignment for today without a shift
             from datetime import date as date_type
-            today = date_type.today()
+            today = (dt_class.utcnow() - timedelta(hours=4)).date()  # Local date (EDT)
             assignments_result = await db.execute(
                 select(EventAssignment, EventModel)
                 .join(EventModel, EventAssignment.event_id == EventModel.id)
