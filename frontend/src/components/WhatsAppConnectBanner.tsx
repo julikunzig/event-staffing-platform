@@ -7,7 +7,7 @@ import { MessageCircle, ExternalLink, X } from 'lucide-react'
 const GREEN = '#2db84b'
 
 // Twilio Sandbox join link - users need to send "join <word>" to this number
-const WHATSAPP_JOIN_URL = 'https://wa.me/14155238886?text=join%20painted-fingers'
+const WHATSAPP_JOIN_URL = 'https://wa.me/14155238886?text=join%20interior-doll'
 
 export default function WhatsAppConnectBanner() {
   const { t, i18n } = useTranslation()
@@ -52,6 +52,11 @@ export default function WhatsAppConnectBanner() {
               ? (isEs ? 'Envía invitaciones y recibe respuestas directo en tu chat.' : 'Send invitations and receive responses directly in your chat.')
               : (isEs ? 'Recibe tus turnos, avisos y reportes directo en tu chat.' : 'Receive your shifts, alerts and reports directly in your chat.')
             }
+          </p>
+          <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#d1d5db', fontFamily: "'Poppins',sans-serif", fontStyle: 'italic' }}>
+            {isEs
+              ? 'Al presionar "Conectar ahora" se abrirá WhatsApp con un mensaje listo para enviar. Envíalo para comenzar a disfrutar todas las ventajas de Kalirio.'
+              : 'Pressing "Connect now" will open WhatsApp with a ready-to-send message. Send it to start enjoying all the benefits of Kalirio.'}
           </p>
         </div>
       </div>
