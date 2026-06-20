@@ -366,7 +366,6 @@ async def direct_assign(
             from app.services.email_queue_service import queue_application_approved_email
             await queue_application_approved_email(
                 db=db,
-                company_id=company_id,
                 employee_email=employee.email,
                 event_name=event.name,
                 event_date=event.event_date.strftime("%Y-%m-%d"),
@@ -509,7 +508,6 @@ async def invite_employee(
         try:
             await queue_event_invitation_email(
                 db=db,
-                company_id=company_id,
                 employee_email=employee.email,
                 event_name=event.name,
                 event_date=event.event_date.strftime("%Y-%m-%d"),
@@ -918,7 +916,6 @@ async def bulk_invite(
             from app.services.email_queue_service import queue_event_invitation_email
             await queue_event_invitation_email(
                 db=db,
-                company_id=company_id,
                 employee_email=task["email"],
                 event_name=task["event_name"],
                 event_date=task["event_date_raw"],

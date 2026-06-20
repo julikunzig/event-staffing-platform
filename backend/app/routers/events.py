@@ -520,7 +520,6 @@ async def publish_event(
                 try:
                     queued = await queue_event_published_email(
                         db=db,
-                        company_id=company_id,
                         employee_email=emp.email,
                         employee_name=first_name,
                         event_name=event.name,
@@ -550,7 +549,6 @@ async def publish_event(
                 try:
                     queued = await queue_event_published_email(
                         db=db,
-                        company_id=company_id,
                         employee_email=emp.email,
                         employee_name=first_name,
                         event_name=event.name,
@@ -602,7 +600,6 @@ async def publish_event(
                     try:
                         queued = await queue_event_published_email(
                             db=db,
-                            company_id=company_id,
                             employee_email=emp.email,
                             employee_name=first_name,
                             event_name=event.name,
@@ -657,7 +654,6 @@ async def publish_event(
                     try:
                         queued = await queue_event_published_email(
                             db=db,
-                            company_id=company_id,
                             employee_email=emp.email,
                             employee_name=first_name,
                             event_name=event.name,
