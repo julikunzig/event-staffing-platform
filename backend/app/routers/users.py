@@ -128,8 +128,9 @@ async def create_user(
         company = await db.get(Company, company_id) if company_id else None
         company_name = company.name if company else "EventsControl"
 
-        from app.services.email_service import send_welcome_email
-        await send_welcome_email(
+        from app.services.email_queue_service import queue_welcome_email
+        await queue_welcome_email(
+            db=db,
             to_email=email_lower,
             user_name=user.name,
             username=username_lower or email_lower,
@@ -137,6 +138,7 @@ async def create_user(
             company_name=company_name,
             login_url="https://event-staffing-platform.vercel.app/login",
         )
+        print(f"[WELCOME_USER QUEUED] {email_lower}")
     except Exception as e:
         print(f"[CreateUser] Error sending welcome email: {e}")
 
@@ -193,13 +195,15 @@ async def add_member(
             from app.models import Company
             company = await db.get(Company, company_id)
             company_name = company.name if company else "EventsControl"
-            from app.services.email_service import send_existing_user_new_company_email
-            await send_existing_user_new_company_email(
+            from app.services.email_queue_service import queue_existing_user_new_company_email
+            await queue_existing_user_new_company_email(
+                db=db,
                 to_email=user.email,
                 user_name=user.name,
                 company_name=company_name,
                 login_url="https://event-staffing-platform.vercel.app/login",
             )
+            print(f"[EXISTING_USER_NEW_COMPANY QUEUED] {user.email}")
         except Exception as e:
             print(f"[AddMember] Error sending new company email: {e}")
 

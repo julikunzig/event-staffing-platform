@@ -361,9 +361,11 @@ async def direct_assign(
             shift_time = str(specific_ejr.start_time)[:5] if specific_ejr and specific_ejr.start_time else str(event.start_time)
             effective_rate = str(specific_ejr.hourly_rate_override or role.hourly_rate) if specific_ejr else str(role.hourly_rate)
 
-            # Email
-            from app.services.email_service import send_application_approved_email
-            await send_application_approved_email(
+            # Queue email
+            from app.services.email_queue_service import queue_application_approved_email
+            await queue_application_approved_email(
+                db=db,
+                company_id=company_id,
                 employee_email=employee.email,
                 event_name=event.name,
                 event_date=event.event_date.strftime("%Y-%m-%d"),
@@ -376,6 +378,7 @@ async def direct_assign(
                 hourly_rate=effective_rate,
                 dress_code=event.dress_code,
             )
+            print(f"[APPLICATION_APPROVED QUEUED] employee={employee.email} event={event.name}")
 
             # WhatsApp
             if employee.phone:
@@ -494,16 +497,18 @@ async def invite_employee(
     await db.flush()
     await db.refresh(assignment)
     
-    # Send invitation email to employee
-    from app.services.email_service import send_event_invitation_email
+    # Queue invitation email to employee
+    from app.services.email_queue_service import queue_event_invitation_email
 
     employee = await db.get(User, body.user_id)
     role = await db.get(JobRole, body.job_role_id)
 
     if employee and role:
         try:
-            ok = await send_event_invitation_email(
-                employee_emails=[employee.email],
+            await queue_event_invitation_email(
+                db=db,
+                company_id=company_id,
+                employee_email=employee.email,
                 event_name=event.name,
                 event_date=event.event_date.strftime("%Y-%m-%d"),
                 start_time=str(event.start_time),
@@ -517,13 +522,13 @@ async def invite_employee(
             )
 
             print(
-                f"[INVITATION EMAIL] employee={employee.email} "
-                f"event={event.name} result={ok}"
+                f"[INVITATION QUEUED] employee={employee.email} "
+                f"event={event.name}"
             )
 
         except Exception as e:
             print(
-                f"[INVITATION EMAIL ERROR] employee={employee.email}: {e}"
+                f"[INVITATION QUEUE ERROR] employee={employee.email}: {e}"
             )
         # 2. WhatsApp al empleado con instrucciones para responder
         if employee.phone:
@@ -904,11 +909,13 @@ async def bulk_invite(
     for task in email_tasks:
         assignment_obj = task["assignment"]
 
-        # 1. Email
+        # 1. Queue Email
         try:
-            from app.services.email_service import send_event_invitation_email
-            ok = await send_event_invitation_email(
-                employee_emails=[task["email"]],
+            from app.services.email_queue_service import queue_event_invitation_email
+            await queue_event_invitation_email(
+                db=db,
+                company_id=company_id,
+                employee_email=task["email"],
                 event_name=task["event_name"],
                 event_date=task["event_date_raw"],
                 start_time=task["event_time"],
@@ -922,11 +929,11 @@ async def bulk_invite(
             )
 
             print(
-                f"[BULK INVITATION EMAIL] email={task['email']} "
-                f"event={task['event_name']} result={ok}"
+                f"[BULK INVITATION QUEUED] email={task['email']} "
+                f"event={task['event_name']}"
             )
         except Exception as e:
-            print(f"[NOTIF] Error enviando email a {task['email']}: {e}")
+            print(f"[NOTIF QUEUE] Error encolando email a {task['email']}: {e}")
 
         # 2. WhatsApp al empleado
         print(f"[WhatsApp] phone={task.get('phone')}, assignment_id={assignment_obj.id}")
@@ -1094,6 +1101,7 @@ async def reject_invitation(
     db: AsyncSession = Depends(get_db),
 ):
     user_id = int(current_user["sub"])
+    company_id = current_user.get("company_id")
     assignment = await db.get(EventAssignment, assignment_id)
     if not assignment or assignment.user_id != user_id:
         raise HTTPException(status_code=404, detail="Invitación no encontrada")
@@ -1306,15 +1314,18 @@ async def withdraw_from_event(
         role = await db.get(JobRole, assignment.job_role_id)
 
         if event_creator and employee and role and event:
-            # Email
-            from app.services.email_service import send_employee_withdrew_email
-            await send_employee_withdrew_email(
+            # Queue Email
+            from app.services.email_queue_service import queue_employee_withdrew_email
+            await queue_employee_withdrew_email(
+                db=db,
+                company_id=company_id,
                 admin_email=event_creator.email,
                 employee_name=employee.name,
                 event_name=event.name,
                 role_name=role.name,
                 event_date=event.event_date.strftime("%Y-%m-%d"),
             )
+            print(f"[EMPLOYEE_WITHDREW QUEUED] admin={event_creator.email} event={event.name}")
             # WhatsApp
             if event_creator.phone:
                 from app.services.whatsapp_service import send_whatsapp

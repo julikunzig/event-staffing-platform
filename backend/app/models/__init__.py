@@ -21,6 +21,7 @@ from app.models.payment import Payment, PaymentEvent, PaymentItem
 from app.models.company_email_settings import CompanyEmailSettings
 from app.models.email_template import EmailTemplate
 from app.models.email_delivery_log import EmailDeliveryLog
+from app.models.email_queue import EmailQueue
 
 __all__ = [
     "Profile",

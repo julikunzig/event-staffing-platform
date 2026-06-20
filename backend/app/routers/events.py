@@ -408,7 +408,7 @@ async def publish_event(
     db: AsyncSession = Depends(get_db),
 ):
     from app.models import EmployeeJobRole, UserCompanyMembership, Profile, EventAssignment
-    from app.services.email_service import send_event_published_email_personalized
+    from app.services.email_queue_service import queue_event_published_email
     from app.services.whatsapp_service import send_whatsapp
 
     company_id = current_user["company_id"]
@@ -518,7 +518,9 @@ async def publish_event(
             for emp in unique_invited:
                 first_name = emp.name.split()[0].capitalize() if emp.name else ""
                 try:
-                    ok = await send_event_published_email_personalized(
+                    queued = await queue_event_published_email(
+                        db=db,
+                        company_id=company_id,
                         employee_email=emp.email,
                         employee_name=first_name,
                         event_name=event.name,
@@ -531,9 +533,9 @@ async def publish_event(
                         roles=roles_info,
                         dress_code=event.dress_code,
                     )
-                    print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                    print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                 except Exception as e:
-                    print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+                    print(f"[EVENT_PUBLISHED QUEUE ERROR] to={emp.email} event={event.name}: {e}")
 
                 assignment = user_assignment_map.get(emp.id)
                 if assignment:
@@ -545,7 +547,9 @@ async def publish_event(
             for emp in unique_invited:
                 first_name = emp.name.split()[0].capitalize() if emp.name else ""
                 try:
-                    ok = await send_event_published_email_personalized(
+                    queued = await queue_event_published_email(
+                        db=db,
+                        company_id=company_id,
                         employee_email=emp.email,
                         employee_name=first_name,
                         event_name=event.name,
@@ -558,9 +562,9 @@ async def publish_event(
                         roles=roles_info,
                         dress_code=event.dress_code,
                     )
-                    print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                    print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                 except Exception as e:
-                    print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+                    print(f"[EVENT_PUBLISHED QUEUE ERROR] to={emp.email} event={event.name}: {e}")
 
                 assignment = user_assignment_map.get(emp.id)
                 if assignment:
@@ -594,7 +598,9 @@ async def publish_event(
                     seen_other.add(emp.id)
                     first_name = emp.name.split()[0].capitalize() if emp.name else ""
                     try:
-                        ok = await send_event_published_email_personalized(
+                        queued = await queue_event_published_email(
+                            db=db,
+                            company_id=company_id,
                             employee_email=emp.email,
                             employee_name=first_name,
                             event_name=event.name,
@@ -607,9 +613,9 @@ async def publish_event(
                             roles=roles_info,
                             dress_code=event.dress_code,
                         )
-                        print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                        print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                     except Exception as e:
-                        print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+                        print(f"[EVENT_PUBLISHED QUEUE ERROR] to={emp.email} event={event.name}: {e}")
                     
 
         else:
@@ -646,7 +652,9 @@ async def publish_event(
                     first_name = emp.name.split()[0].capitalize() if emp.name else ""
                     role_info = [{"name": role.name, "rate": effective_rate}]
                     try:
-                        ok = await send_event_published_email_personalized(
+                        queued = await queue_event_published_email(
+                            db=db,
+                            company_id=company_id,
                             employee_email=emp.email,
                             employee_name=first_name,
                             event_name=event.name,
@@ -659,9 +667,9 @@ async def publish_event(
                             roles=roles_info,
                             dress_code=event.dress_code,
                         )
-                        print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                        print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                     except Exception as e:
-                        print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+                        print(f"[EVENT_PUBLISHED QUEUE ERROR] to={emp.email} event={event.name}: {e}")
                     
                     await notify_push(emp.id, f"🎉 {event.name}", f"{role.name} a las {role_start_time} — ${effective_rate}/h")
 

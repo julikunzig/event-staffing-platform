@@ -183,7 +183,7 @@ class ResetPasswordRequest(BaseModel):
 
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
-    from app.services.email_service import send_password_reset_email
+    from app.services.email_queue_service import queue_password_reset_email
     
     email_lower = body.email.strip().lower()
     result = await db.execute(select(User).where(User.email == email_lower, User.is_active == True))
@@ -208,12 +208,14 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     db.add(reset_token)
     await db.flush()
 
-    # Enviar email usando el servicio de email
+    # Encolar email usando el servicio de cola
     reset_url = f"http://localhost:5173/reset-password?token={token_str}"
-    await send_password_reset_email(
-        user_email=user.email,
+    await queue_password_reset_email(
+        db=db,
+        to_email=user.email,
         reset_link=reset_url,
     )
+    print(f"[PASSWORD_RESET QUEUED] {user.email}")
 
     await db.commit()
     return {"message": "Si el email existe, recibirás un enlace de recuperación"}

@@ -6,6 +6,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.core.config import settings
+from app.services.email_queue_worker import (
+    start_email_queue_worker,
+    stop_email_queue_worker,
+)
+
 from app.routers import (
     auth,
     companies,
@@ -25,6 +30,7 @@ from app.routers import (
     company_email_settings,
     email_templates,
     email_delivery_logs,
+    email_queue,
 )
 
 
@@ -53,7 +59,20 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         print(f"⚠️ No se pudo ejecutar seed de email templates: {exc}")
 
-    yield
+    try:
+        start_email_queue_worker()
+        print("✅ Email queue worker iniciado correctamente")
+    except Exception as exc:
+        print(f"⚠️ No se pudo iniciar email queue worker: {exc}")
+
+    try:
+        yield
+    finally:
+        try:
+            await stop_email_queue_worker()
+            print("✅ Email queue worker detenido correctamente")
+        except Exception as exc:
+            print(f"⚠️ No se pudo detener email queue worker: {exc}")
 
 
 app = FastAPI(
@@ -113,6 +132,7 @@ app.include_router(payments.router, prefix=settings.API_PREFIX)
 app.include_router(company_email_settings.router, prefix=settings.API_PREFIX)
 app.include_router(email_templates.router, prefix=settings.API_PREFIX)
 app.include_router(email_delivery_logs.router, prefix=settings.API_PREFIX)
+app.include_router(email_queue.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health")

@@ -2,24 +2,49 @@
 
 Revision ID: 0024
 Revises: 0023
-Create Date: 2026-06-20 00:00:00.000000
+Create Date: 2026-06-20
 """
-from alembic import op
-import sqlalchemy as sa
 
-revision = '0024'
-down_revision = '0023'
-branch_labels = None
-depends_on = None
+from typing import Sequence, Union
+
+from alembic import op
+
+
+revision: str = "0024"
+down_revision: Union[str, None] = "0023"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('email_delivery_logs', sa.Column('html_body', sa.Text(), nullable=True))
-    op.add_column('email_delivery_logs', sa.Column('text_body', sa.Text(), nullable=True))
-    op.add_column('email_delivery_logs', sa.Column('variables_json', sa.JSON(), nullable=True))
+    op.execute("""
+        ALTER TABLE email_delivery_logs
+        ADD COLUMN IF NOT EXISTS html_body TEXT
+    """)
+
+    op.execute("""
+        ALTER TABLE email_delivery_logs
+        ADD COLUMN IF NOT EXISTS text_body TEXT
+    """)
+
+    op.execute("""
+        ALTER TABLE email_delivery_logs
+        ADD COLUMN IF NOT EXISTS variables_json JSONB
+    """)
 
 
 def downgrade() -> None:
-    op.drop_column('email_delivery_logs', 'variables_json')
-    op.drop_column('email_delivery_logs', 'text_body')
-    op.drop_column('email_delivery_logs', 'html_body')
+    op.execute("""
+        ALTER TABLE email_delivery_logs
+        DROP COLUMN IF EXISTS variables_json
+    """)
+
+    op.execute("""
+        ALTER TABLE email_delivery_logs
+        DROP COLUMN IF EXISTS text_body
+    """)
+
+    op.execute("""
+        ALTER TABLE email_delivery_logs
+        DROP COLUMN IF EXISTS html_body
+    """)
