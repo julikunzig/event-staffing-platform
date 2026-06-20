@@ -517,19 +517,24 @@ async def publish_event(
             # Send email + WhatsApp to invited employees
             for emp in unique_invited:
                 first_name = emp.name.split()[0].capitalize() if emp.name else ""
-                await send_event_published_email_personalized(
-                    employee_email=emp.email,
-                    employee_name=first_name,
-                    event_name=event.name,
-                    event_date=event_date_str,
-                    start_time=start_time_str,
-                    address=event.address,
-                    city=event.city or "",
-                    state=event.state or "",
-                    zip_code=event.zip_code or "",
-                    roles=roles_info,
-                    dress_code=event.dress_code,
-                )
+                try:
+                    ok = await send_event_published_email_personalized(
+                        employee_email=emp.email,
+                        employee_name=first_name,
+                        event_name=event.name,
+                        event_date=event_date_str,
+                        start_time=start_time_str,
+                        address=event.address,
+                        city=event.city or "",
+                        state=event.state or "",
+                        zip_code=event.zip_code or "",
+                        roles=roles_info,
+                        dress_code=event.dress_code,
+                    )
+                    print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                except Exception as e:
+                    print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+
                 assignment = user_assignment_map.get(emp.id)
                 if assignment:
                     await notify_invited_via_whatsapp(emp, assignment.id)
@@ -539,19 +544,24 @@ async def publish_event(
             # Send email + WhatsApp + push to invited employees
             for emp in unique_invited:
                 first_name = emp.name.split()[0].capitalize() if emp.name else ""
-                await send_event_published_email_personalized(
-                    employee_email=emp.email,
-                    employee_name=first_name,
-                    event_name=event.name,
-                    event_date=event_date_str,
-                    start_time=start_time_str,
-                    address=event.address,
-                    city=event.city or "",
-                    state=event.state or "",
-                    zip_code=event.zip_code or "",
-                    roles=roles_info,
-                    dress_code=event.dress_code,
-                )
+                try:
+                    ok = await send_event_published_email_personalized(
+                        employee_email=emp.email,
+                        employee_name=first_name,
+                        event_name=event.name,
+                        event_date=event_date_str,
+                        start_time=start_time_str,
+                        address=event.address,
+                        city=event.city or "",
+                        state=event.state or "",
+                        zip_code=event.zip_code or "",
+                        roles=roles_info,
+                        dress_code=event.dress_code,
+                    )
+                    print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                except Exception as e:
+                    print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+
                 assignment = user_assignment_map.get(emp.id)
                 if assignment:
                     await notify_invited_via_whatsapp(emp, assignment.id)
@@ -583,19 +593,24 @@ async def publish_event(
                 if emp.id not in seen_other and emp.email:
                     seen_other.add(emp.id)
                     first_name = emp.name.split()[0].capitalize() if emp.name else ""
-                    await send_event_published_email_personalized(
-                        employee_email=emp.email,
-                        employee_name=first_name,
-                        event_name=event.name,
-                        event_date=event_date_str,
-                        start_time=start_time_str,
-                        address=event.address,
-                        city=event.city or "",
-                        state=event.state or "",
-                        zip_code=event.zip_code or "",
-                        roles=roles_info,
-                        dress_code=event.dress_code,
-                    )
+                    try:
+                        ok = await send_event_published_email_personalized(
+                            employee_email=emp.email,
+                            employee_name=first_name,
+                            event_name=event.name,
+                            event_date=event_date_str,
+                            start_time=start_time_str,
+                            address=event.address,
+                            city=event.city or "",
+                            state=event.state or "",
+                            zip_code=event.zip_code or "",
+                            roles=roles_info,
+                            dress_code=event.dress_code,
+                        )
+                        print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                    except Exception as e:
+                        print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+                    
 
         else:
             # ── CASE C: No invitations — send per-role emails to eligible employees ─
@@ -630,19 +645,24 @@ async def publish_event(
                         continue
                     first_name = emp.name.split()[0].capitalize() if emp.name else ""
                     role_info = [{"name": role.name, "rate": effective_rate}]
-                    await send_event_published_email_personalized(
-                        employee_email=emp.email,
-                        employee_name=first_name,
-                        event_name=event.name,
-                        event_date=event_date_str,
-                        start_time=role_start_time,
-                        address=event.address,
-                        city=event.city or "",
-                        state=event.state or "",
-                        zip_code=event.zip_code or "",
-                        roles=role_info,
-                        dress_code=event.dress_code,
-                    )
+                    try:
+                        ok = await send_event_published_email_personalized(
+                            employee_email=emp.email,
+                            employee_name=first_name,
+                            event_name=event.name,
+                            event_date=event_date_str,
+                            start_time=start_time_str,
+                            address=event.address,
+                            city=event.city or "",
+                            state=event.state or "",
+                            zip_code=event.zip_code or "",
+                            roles=roles_info,
+                            dress_code=event.dress_code,
+                        )
+                        print(f"[EVENT_PUBLISHED EMAIL] to={emp.email} event={event.name} result={ok}")
+                    except Exception as e:
+                        print(f"[EVENT_PUBLISHED EMAIL ERROR] to={emp.email} event={event.name}: {e}")
+                    
                     await notify_push(emp.id, f"🎉 {event.name}", f"{role.name} a las {role_start_time} — ${effective_rate}/h")
 
     except Exception as e:

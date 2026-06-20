@@ -496,24 +496,35 @@ async def invite_employee(
     
     # Send invitation email to employee
     from app.services.email_service import send_event_invitation_email
+
     employee = await db.get(User, body.user_id)
     role = await db.get(JobRole, body.job_role_id)
-    
+
     if employee and role:
-        # 1. Email al empleado
-        await send_event_invitation_email(
-            employee_emails=[employee.email],
-            event_name=event.name,
-            event_date=event.event_date.strftime("%Y-%m-%d"),
-            start_time=str(event.start_time),
-            address=event.address,
-            city=event.city or "",
-            state=event.state or "",
-            zip_code=event.zip_code or "",
-            role_name=role.name,
-            hourly_rate=str(role.hourly_rate),
-            dress_code=event.dress_code,
-        )
+        try:
+            ok = await send_event_invitation_email(
+                employee_emails=[employee.email],
+                event_name=event.name,
+                event_date=event.event_date.strftime("%Y-%m-%d"),
+                start_time=str(event.start_time),
+                address=event.address,
+                city=event.city or "",
+                state=event.state or "",
+                zip_code=event.zip_code or "",
+                role_name=role.name,
+                hourly_rate=str(role.hourly_rate),
+                dress_code=event.dress_code,
+            )
+
+            print(
+                f"[INVITATION EMAIL] employee={employee.email} "
+                f"event={event.name} result={ok}"
+            )
+
+        except Exception as e:
+            print(
+                f"[INVITATION EMAIL ERROR] employee={employee.email}: {e}"
+            )
         # 2. WhatsApp al empleado con instrucciones para responder
         if employee.phone:
             try:
@@ -896,7 +907,7 @@ async def bulk_invite(
         # 1. Email
         try:
             from app.services.email_service import send_event_invitation_email
-            await send_event_invitation_email(
+            ok = await send_event_invitation_email(
                 employee_emails=[task["email"]],
                 event_name=task["event_name"],
                 event_date=task["event_date_raw"],
@@ -908,6 +919,11 @@ async def bulk_invite(
                 role_name=task["role_name"],
                 hourly_rate=task["hourly_rate"],
                 dress_code=task["event_dress_code"],
+            )
+
+            print(
+                f"[BULK INVITATION EMAIL] email={task['email']} "
+                f"event={task['event_name']} result={ok}"
             )
         except Exception as e:
             print(f"[NOTIF] Error enviando email a {task['email']}: {e}")
