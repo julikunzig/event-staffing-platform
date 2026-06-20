@@ -242,6 +242,7 @@ async def apply_to_event(
             event_name=event.name,
             role_name=role.name,
             event_date=event.event_date.strftime("%Y-%m-%d"),
+            company_id=event.company_id,
         )
         # Push to admin
         try:
@@ -377,6 +378,7 @@ async def direct_assign(
                 role_name=role.name,
                 hourly_rate=effective_rate,
                 dress_code=event.dress_code,
+                company_id=event.company_id,
             )
             print(f"[APPLICATION_APPROVED QUEUED] employee={employee.email} event={event.name}")
 
@@ -519,6 +521,7 @@ async def invite_employee(
                 role_name=role.name,
                 hourly_rate=str(role.hourly_rate),
                 dress_code=event.dress_code,
+                company_id=event.company_id,
             )
 
             print(
@@ -665,6 +668,7 @@ async def approve_assignment(
             role_name=role.name,
             hourly_rate=str(role.hourly_rate),
             dress_code=event.dress_code,
+            company_id=event.company_id,
         )
         # Push to employee
         try:
@@ -926,6 +930,7 @@ async def bulk_invite(
                 role_name=task["role_name"],
                 hourly_rate=task["hourly_rate"],
                 dress_code=task["event_dress_code"],
+                company_id=event.company_id,
             )
 
             print(

@@ -532,6 +532,7 @@ async def publish_event(
                         zip_code=event.zip_code or "",
                         roles=roles_info,
                         dress_code=event.dress_code,
+                        company_id=event.company_id,
                     )
                     print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                 except Exception as e:
@@ -561,6 +562,7 @@ async def publish_event(
                         zip_code=event.zip_code or "",
                         roles=roles_info,
                         dress_code=event.dress_code,
+                        company_id=event.company_id,
                     )
                     print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                 except Exception as e:
@@ -612,6 +614,7 @@ async def publish_event(
                             zip_code=event.zip_code or "",
                             roles=roles_info,
                             dress_code=event.dress_code,
+                            company_id=event.company_id,
                         )
                         print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                     except Exception as e:
@@ -666,6 +669,7 @@ async def publish_event(
                             zip_code=event.zip_code or "",
                             roles=roles_info,
                             dress_code=event.dress_code,
+                            company_id=event.company_id,
                         )
                         print(f"[EVENT_PUBLISHED QUEUED] to={emp.email} event={event.name} queue_id={queued.id}")
                     except Exception as e:
