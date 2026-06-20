@@ -22,6 +22,8 @@ import NewsPage from '@/pages/NewsPage'
 import EventHoursPage from '@/pages/EventHoursPage'
 import HelpPage from '@/pages/HelpPage'
 import PayrollPage from '@/pages/PayrollPage'
+import PaymentsPage from '@/pages/PaymentsPage'
+import EmployeeDashboardPage from '@/pages/EmployeeDashboardPage'
 import EmailSettingsPage from '@/pages/EmailSettingsPage'
 
 const queryClient = new QueryClient()
@@ -36,6 +38,7 @@ export default function App() {
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+            <Route path="/employee-dashboard" element={<ProtectedRoute><EmployeeDashboardPage /></ProtectedRoute>} />
             <Route path="/events" element={<ProtectedRoute><EventsPage /></ProtectedRoute>} />
             <Route path="/events/new" element={<ProtectedRoute roles={['admin', 'super_admin']}><EventCreatePage /></ProtectedRoute>} />
             <Route path="/events/:id/edit" element={<ProtectedRoute roles={['admin', 'super_admin']}><EventEditPage /></ProtectedRoute>} />
@@ -44,7 +47,7 @@ export default function App() {
             <Route path="/users" element={<ProtectedRoute roles={['admin', 'super_admin']}><UsersPage /></ProtectedRoute>} />
             <Route path="/companies" element={<ProtectedRoute roles={['super_admin']}><CompaniesPage /></ProtectedRoute>} />
             <Route path="/company-settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><CompanySettingsPage /></ProtectedRoute>} />
-			<Route path="/email-settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><EmailSettingsPage /> </ProtectedRoute> }/>
+            <Route path="/email-settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><EmailSettingsPage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><EmployeeProfilePage /></ProtectedRoute>} />
             <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
             <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
@@ -52,6 +55,7 @@ export default function App() {
             <Route path="/news" element={<ProtectedRoute><NewsPage /></ProtectedRoute>} />
             <Route path="/event-hours" element={<ProtectedRoute roles={['admin', 'super_admin', 'coordinator']}><EventHoursPage /></ProtectedRoute>} />
             <Route path="/payroll" element={<ProtectedRoute roles={['admin', 'super_admin']}><PayrollPage /></ProtectedRoute>} />
+            <Route path="/payments" element={<ProtectedRoute roles={['admin', 'super_admin']}><PaymentsPage /></ProtectedRoute>} />
             <Route path="/help" element={<ProtectedRoute><HelpPage /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

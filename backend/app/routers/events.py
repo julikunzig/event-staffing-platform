@@ -188,10 +188,27 @@ async def create_event(
     # Generate event_code: {company_id}-{consecutive}
     from sqlalchemy import func as sqlfunc
     max_code_result = await db.execute(
-        select(sqlfunc.count(Event.id)).where(Event.company_id == company_id)
+        select(sqlfunc.max(Event.id)).where(
+            Event.company_id == company_id,
+            Event.event_code.isnot(None),
+        )
     )
-    consecutive = max_code_result.scalar() or 1
-    event.event_code = f"{company_id}-{consecutive}"
+    # Find the max consecutive number from existing codes
+    existing_codes_result = await db.execute(
+        select(Event.event_code).where(
+            Event.company_id == company_id,
+            Event.event_code.isnot(None),
+        )
+    )
+    max_consecutive = 0
+    for (code,) in existing_codes_result.all():
+        try:
+            num = int(code.split("-")[-1])
+            if num > max_consecutive:
+                max_consecutive = num
+        except (ValueError, IndexError):
+            pass
+    event.event_code = f"{company_id}-{max_consecutive + 1}"
     await db.flush()
 
     for jr in body.job_roles:

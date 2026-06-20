@@ -4,7 +4,7 @@ import { isAdmin, isAdminOrCoord } from '@/lib/auth'
 import {
   CalendarDays, Users, Briefcase, BarChart2, LogOut,
   Home, Building2, KeyRound, UserCircle, Globe,
-  Menu, X, Newspaper, ChevronUp, Settings, HelpCircle, DollarSign
+  Menu, X, Newspaper, ChevronUp, Settings, HelpCircle, DollarSign, CreditCard, Activity
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useRef } from 'react'
@@ -56,6 +56,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { to: '/dashboard',        label: t('nav.home'),      icon: Home,         show: true },
+    { to: '/employee-dashboard', label: t('nav.employeeDashboard') || 'Mi Panel', icon: Activity, show: user?.role === 'employee' },
     { to: '/events',           label: t('nav.events'),    icon: CalendarDays, show: true },
     { to: '/news',             label: t('nav.news'),      icon: Newspaper,    show: true },
     { to: '/companies',        label: t('nav.companies'), icon: Building2,    show: user?.role === 'super_admin' },
@@ -65,6 +66,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 	{ to: '/email-settings',   label: 'Correo electrónico', icon: Settings, show: isAdmin(user)},
     { to: '/reports',          label: t('nav.reports'),   icon: BarChart2,    show: isAdminOrCoord(user) || user?.role === 'employee' },
     { to: '/payroll',          label: t('nav.payroll'),   icon: DollarSign,   show: isAdmin(user) },
+    { to: '/payments',         label: t('nav.payments'),  icon: CreditCard,   show: isAdmin(user) },
   ]
 
   const profileItems = [

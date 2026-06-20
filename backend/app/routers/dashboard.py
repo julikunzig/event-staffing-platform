@@ -370,3 +370,307 @@ async def get_dashboard_charts(
         top_employees=top_employees,
         biggest_events=biggest_events,
     )
+
+
+
+# ── Employee Actions endpoint ────────────────────────────────────────────────
+
+class EmployeeActionEvent(BaseModel):
+    id: int
+    name: str
+    event_code: str | None
+    event_date: date
+    start_time: str
+    end_time: str | None
+    address: str
+    city: str | None
+    state: str | None
+    dress_code: str | None
+    status: str
+    assignment_id: int | None = None
+    job_role_id: int | None = None
+    job_role_name: str | None = None
+    assignment_status: str | None = None
+    shift_start_time: str | None = None
+
+
+class EmployeeActionsResponse(BaseModel):
+    ready_to_clock_out: list[EmployeeActionEvent]
+    ready_to_clock_in: list[EmployeeActionEvent]
+    invitations: list[EmployeeActionEvent]
+    available_to_apply: list[EmployeeActionEvent]
+
+
+@router.get("/employee-actions", response_model=EmployeeActionsResponse)
+async def get_employee_actions(
+    current_user: AuthDep,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns all actionable events for the logged-in employee in one call.
+    Categories:
+      - ready_to_clock_in: approved assignments where event is started/filled/published and no clock-in yet
+      - invitations: assignments with status 'invited'
+      - available_to_apply: published events matching employee roles without existing assignment
+    """
+    from app.models import EmployeeJobRole, EventJobRole
+
+    user_id = int(current_user["sub"])
+    company_id = current_user["company_id"]
+
+    # ── 0. Ready to clock out ────────────────────────────────────────────────
+    # Employee has clocked in but NOT clocked out yet
+    clock_out_query = (
+        select(
+            Event.id,
+            Event.name,
+            Event.event_code,
+            Event.event_date,
+            Event.start_time,
+            Event.end_time,
+            Event.address,
+            Event.city,
+            Event.state,
+            Event.dress_code,
+            Event.status,
+            EventAssignment.id.label("assignment_id"),
+            EventAssignment.job_role_id,
+            JobRole.name.label("job_role_name"),
+            EventAssignment.status.label("assignment_status"),
+            Shift.clock_in,
+            Shift.hours_worked,
+            Shift.is_paused,
+        )
+        .join(EventAssignment, EventAssignment.event_id == Event.id)
+        .join(JobRole, JobRole.id == EventAssignment.job_role_id)
+        .join(Shift, Shift.assignment_id == EventAssignment.id)
+        .where(
+            Event.company_id == company_id,
+            EventAssignment.user_id == user_id,
+            EventAssignment.status == "approved",
+            Event.status.notin_(["cancelled"]),
+            Shift.clock_in.isnot(None),
+            Shift.clock_out.is_(None),
+        )
+        .order_by(Event.event_date, Event.start_time)
+    )
+    clock_out_result = await db.execute(clock_out_query)
+    ready_to_clock_out = [
+        EmployeeActionEvent(
+            id=row["id"],
+            name=row["name"],
+            event_code=row["event_code"],
+            event_date=row["event_date"],
+            start_time=str(row["start_time"]),
+            end_time=str(row["end_time"]) if row["end_time"] else None,
+            address=row["address"],
+            city=row["city"],
+            state=row["state"],
+            dress_code=row["dress_code"],
+            status=row["status"],
+            assignment_id=row["assignment_id"],
+            job_role_id=row["job_role_id"],
+            job_role_name=row["job_role_name"],
+            assignment_status=row["assignment_status"],
+            shift_start_time=None,
+        )
+        for row in clock_out_result.mappings().all()
+    ]
+
+    # ── 1. Ready to clock in ─────────────────────────────────────────────────
+    # Employee has status "approved" AND event is started/filled/published AND no clock-in
+    clock_in_query = (
+        select(
+            Event.id,
+            Event.name,
+            Event.event_code,
+            Event.event_date,
+            Event.start_time,
+            Event.end_time,
+            Event.address,
+            Event.city,
+            Event.state,
+            Event.dress_code,
+            Event.status,
+            EventAssignment.id.label("assignment_id"),
+            EventAssignment.job_role_id,
+            JobRole.name.label("job_role_name"),
+            EventAssignment.status.label("assignment_status"),
+        )
+        .join(EventAssignment, EventAssignment.event_id == Event.id)
+        .join(JobRole, JobRole.id == EventAssignment.job_role_id)
+        .outerjoin(Shift, Shift.assignment_id == EventAssignment.id)
+        .where(
+            Event.company_id == company_id,
+            EventAssignment.user_id == user_id,
+            EventAssignment.status == "approved",
+            Event.status.in_(["started", "filled", "published"]),
+            Shift.id.is_(None),  # no shift record = hasn't clocked in
+        )
+        .order_by(Event.event_date, Event.start_time)
+    )
+    clock_in_result = await db.execute(clock_in_query)
+    ready_to_clock_in = []
+    for row in clock_in_result.mappings().all():
+        # Check if there's a shift_start_time from event_job_role
+        shift_start_time = None
+        ejr_q = await db.execute(
+            select(EventJobRole.start_time)
+            .where(
+                EventJobRole.event_id == row["id"],
+                EventJobRole.job_role_id == row["job_role_id"],
+            )
+        )
+        ejr_row = ejr_q.scalar_one_or_none()
+        if ejr_row:
+            shift_start_time = str(ejr_row)
+
+        ready_to_clock_in.append(EmployeeActionEvent(
+            id=row["id"],
+            name=row["name"],
+            event_code=row["event_code"],
+            event_date=row["event_date"],
+            start_time=str(row["start_time"]),
+            end_time=str(row["end_time"]) if row["end_time"] else None,
+            address=row["address"],
+            city=row["city"],
+            state=row["state"],
+            dress_code=row["dress_code"],
+            status=row["status"],
+            assignment_id=row["assignment_id"],
+            job_role_id=row["job_role_id"],
+            job_role_name=row["job_role_name"],
+            assignment_status=row["assignment_status"],
+            shift_start_time=shift_start_time,
+        ))
+
+    # ── 2. Invitations ───────────────────────────────────────────────────────
+    invitations_query = (
+        select(
+            Event.id,
+            Event.name,
+            Event.event_code,
+            Event.event_date,
+            Event.start_time,
+            Event.end_time,
+            Event.address,
+            Event.city,
+            Event.state,
+            Event.dress_code,
+            Event.status,
+            EventAssignment.id.label("assignment_id"),
+            EventAssignment.job_role_id,
+            JobRole.name.label("job_role_name"),
+            EventAssignment.status.label("assignment_status"),
+        )
+        .join(EventAssignment, EventAssignment.event_id == Event.id)
+        .join(JobRole, JobRole.id == EventAssignment.job_role_id)
+        .where(
+            Event.company_id == company_id,
+            EventAssignment.user_id == user_id,
+            EventAssignment.status == "invited",
+            Event.status.notin_(["cancelled", "finished", "settled"]),
+        )
+        .order_by(Event.event_date, Event.start_time)
+    )
+    invitations_result = await db.execute(invitations_query)
+    invitations = [
+        EmployeeActionEvent(
+            id=row["id"],
+            name=row["name"],
+            event_code=row["event_code"],
+            event_date=row["event_date"],
+            start_time=str(row["start_time"]),
+            end_time=str(row["end_time"]) if row["end_time"] else None,
+            address=row["address"],
+            city=row["city"],
+            state=row["state"],
+            dress_code=row["dress_code"],
+            status=row["status"],
+            assignment_id=row["assignment_id"],
+            job_role_id=row["job_role_id"],
+            job_role_name=row["job_role_name"],
+            assignment_status=row["assignment_status"],
+            shift_start_time=None,
+        )
+        for row in invitations_result.mappings().all()
+    ]
+
+    # ── 3. Available to apply ────────────────────────────────────────────────
+    # Published events that match employee's job roles AND employee doesn't already have assignment
+    # First get employee's job role IDs
+    emp_roles_result = await db.execute(
+        select(EmployeeJobRole.job_role_id).where(
+            EmployeeJobRole.user_id == user_id,
+            EmployeeJobRole.company_id == company_id,
+        )
+    )
+    emp_role_ids = [r for r in emp_roles_result.scalars().all()]
+
+    available_to_apply: list[EmployeeActionEvent] = []
+    if emp_role_ids:
+        # Find published, public events with matching job roles where employee has no assignment
+        existing_assignments_subquery = (
+            select(EventAssignment.event_id).where(
+                EventAssignment.user_id == user_id,
+                EventAssignment.status.notin_(["removed", "rejected"]),
+            )
+        )
+
+        available_query = (
+            select(
+                Event.id,
+                Event.name,
+                Event.event_code,
+                Event.event_date,
+                Event.start_time,
+                Event.end_time,
+                Event.address,
+                Event.city,
+                Event.state,
+                Event.dress_code,
+                Event.status,
+                EventJobRole.job_role_id,
+                JobRole.name.label("job_role_name"),
+            )
+            .join(EventJobRole, EventJobRole.event_id == Event.id)
+            .join(JobRole, JobRole.id == EventJobRole.job_role_id)
+            .where(
+                Event.company_id == company_id,
+                Event.status == "published",
+                Event.is_public == True,
+                EventJobRole.job_role_id.in_(emp_role_ids),
+                Event.id.notin_(existing_assignments_subquery),
+            )
+            .order_by(Event.event_date, Event.start_time)
+            .distinct()
+        )
+        available_result = await db.execute(available_query)
+        available_to_apply = [
+            EmployeeActionEvent(
+                id=row["id"],
+                name=row["name"],
+                event_code=row["event_code"],
+                event_date=row["event_date"],
+                start_time=str(row["start_time"]),
+                end_time=str(row["end_time"]) if row["end_time"] else None,
+                address=row["address"],
+                city=row["city"],
+                state=row["state"],
+                dress_code=row["dress_code"],
+                status=row["status"],
+                assignment_id=None,
+                job_role_id=row["job_role_id"],
+                job_role_name=row["job_role_name"],
+                assignment_status=None,
+                shift_start_time=None,
+            )
+            for row in available_result.mappings().all()
+        ]
+
+    return EmployeeActionsResponse(
+        ready_to_clock_out=ready_to_clock_out,
+        ready_to_clock_in=ready_to_clock_in,
+        invitations=invitations,
+        available_to_apply=available_to_apply,
+    )

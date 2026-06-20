@@ -1035,32 +1035,36 @@ async def accept_invitation(
     # Don't manually increment slots_filled - check_and_update_event_status will sync it
     await db.flush()
     
-    # Send notification email to admin about acceptance
-    from app.services.email_service import send_invitation_response_email
-    event = await db.get(Event, assignment.event_id)
-    event_creator = await db.get(User, event.created_by) if event else None
-    employee = await db.get(User, assignment.user_id)
-    role = await db.get(JobRole, assignment.job_role_id)
-    
-    if event_creator and employee and role and event:
-        await send_invitation_response_email(
-            admin_email=event_creator.email,
-            employee_name=employee.name,
-            event_name=event.name,
-            role_name=role.name,
-            event_date=event.event_date.strftime("%Y-%m-%d"),
-            accepted=True,
-        )
-        # WhatsApp to admin
-        if event_creator.phone:
-            from app.services.whatsapp_service import send_whatsapp
-            msg = f"✅ *{employee.name}* aceptó la invitación para *{event.name}* ({event.event_date.strftime('%Y-%m-%d')}) como {role.name}."
-            send_whatsapp(event_creator.phone, msg)
-        # Push to admin
-        try:
-            from app.services.push_service import send_push_to_user
-            await send_push_to_user(event.created_by, f"✅ {employee.name} aceptó", f"Aceptó la invitación para {event.name}", "/events", db)
-        except Exception: pass
+    # Send notifications to admin about acceptance (non-blocking)
+    try:
+        from app.services.email_service import send_invitation_response_email
+        event = await db.get(Event, assignment.event_id)
+        event_creator = await db.get(User, event.created_by) if event else None
+        employee = await db.get(User, assignment.user_id)
+        role = await db.get(JobRole, assignment.job_role_id)
+        
+        if event_creator and employee and role and event:
+            await send_invitation_response_email(
+                admin_email=event_creator.email,
+                employee_name=employee.name,
+                event_name=event.name,
+                role_name=role.name,
+                event_date=event.event_date.strftime("%Y-%m-%d"),
+                accepted=True,
+            )
+            # WhatsApp to admin
+            if event_creator.phone:
+                from app.services.whatsapp_service import send_whatsapp
+                msg = f"✅ *{employee.name}* aceptó la invitación para *{event.name}* ({event.event_date.strftime('%Y-%m-%d')}) como {role.name}."
+                send_whatsapp(event_creator.phone, msg)
+            # Push to admin
+            try:
+                from app.services.push_service import send_push_to_user
+                await send_push_to_user(event.created_by, f"✅ {employee.name} aceptó", f"Aceptó la invitación para {event.name}", "/events", db)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[accept_invitation] Error sending notifications: {e}")
     
     from app.services.event_status import check_and_update_event_status
     await check_and_update_event_status(assignment.event_id, db)
@@ -1083,32 +1087,36 @@ async def reject_invitation(
     assignment.status = "rejected"
     await db.flush()
     
-    # Send notification email to admin about rejection
-    from app.services.email_service import send_invitation_response_email
-    event = await db.get(Event, assignment.event_id)
-    event_creator = await db.get(User, event.created_by) if event else None
-    employee = await db.get(User, assignment.user_id)
-    role = await db.get(JobRole, assignment.job_role_id)
-    
-    if event_creator and employee and role and event:
-        await send_invitation_response_email(
-            admin_email=event_creator.email,
-            employee_name=employee.name,
-            event_name=event.name,
-            role_name=role.name,
-            event_date=event.event_date.strftime("%Y-%m-%d"),
-            accepted=False,
-        )
-        # WhatsApp to admin
-        if event_creator.phone:
-            from app.services.whatsapp_service import send_whatsapp
-            msg = f"❌ *{employee.name}* rechazó la invitación para *{event.name}* ({event.event_date.strftime('%Y-%m-%d')}) como {role.name}."
-            send_whatsapp(event_creator.phone, msg)
-        # Push to admin
-        try:
-            from app.services.push_service import send_push_to_user
-            await send_push_to_user(event.created_by, f"❌ {employee.name} rechazó", f"Rechazó la invitación para {event.name}", "/events", db)
-        except Exception: pass
+    # Send notifications to admin about rejection (non-blocking)
+    try:
+        from app.services.email_service import send_invitation_response_email
+        event = await db.get(Event, assignment.event_id)
+        event_creator = await db.get(User, event.created_by) if event else None
+        employee = await db.get(User, assignment.user_id)
+        role = await db.get(JobRole, assignment.job_role_id)
+        
+        if event_creator and employee and role and event:
+            await send_invitation_response_email(
+                admin_email=event_creator.email,
+                employee_name=employee.name,
+                event_name=event.name,
+                role_name=role.name,
+                event_date=event.event_date.strftime("%Y-%m-%d"),
+                accepted=False,
+            )
+            # WhatsApp to admin
+            if event_creator.phone:
+                from app.services.whatsapp_service import send_whatsapp
+                msg = f"❌ *{employee.name}* rechazó la invitación para *{event.name}* ({event.event_date.strftime('%Y-%m-%d')}) como {role.name}."
+                send_whatsapp(event_creator.phone, msg)
+            # Push to admin
+            try:
+                from app.services.push_service import send_push_to_user
+                await send_push_to_user(event.created_by, f"❌ {employee.name} rechazó", f"Rechazó la invitación para {event.name}", "/events", db)
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[reject_invitation] Error sending notifications: {e}")
     
     # El cupo queda libre — actualizar estado del evento (puede volver a published)
     from app.services.event_status import check_and_update_event_status

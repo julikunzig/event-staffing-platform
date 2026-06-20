@@ -178,6 +178,15 @@ async def whatsapp_webhook(
                             accepted=(action == "accept"),
                         )
                         print(f"[WhatsApp] Admin email sent: {admin.email} — {emp.name} {'accepted' if action == 'accept' else 'rejected'} {event_name}")
+                    # WhatsApp al admin
+                    if admin.phone and admin.id != emp.id:
+                        from app.services.whatsapp_service import send_whatsapp
+                        if action == "accept":
+                            wa_msg = f"✅ *{emp.name}* aceptó la invitación para *{event_name}* ({event_date_str}) como {role_name}."
+                        else:
+                            wa_msg = f"❌ *{emp.name}* rechazó la invitación para *{event_name}* ({event_date_str}) como {role_name}."
+                        send_whatsapp(admin.phone, wa_msg)
+                        print(f"[WhatsApp] Admin WhatsApp sent: {admin.phone} — {emp.name} {'accepted' if action == 'accept' else 'rejected'} {event_name}")
                     # Push al admin
                     try:
                         from app.services.push_service import send_push_to_user
@@ -501,6 +510,24 @@ async def whatsapp_webhook(
         created_by=user.id,
     )
     db.add(event)
+    await db.flush()
+
+    # Generate event_code: {company_id}-{consecutive}
+    existing_codes_result = await db.execute(
+        select(Event.event_code).where(
+            Event.company_id == company_id,
+            Event.event_code.isnot(None),
+        )
+    )
+    max_consecutive = 0
+    for (code,) in existing_codes_result.all():
+        try:
+            num = int(code.split("-")[-1])
+            if num > max_consecutive:
+                max_consecutive = num
+        except (ValueError, IndexError):
+            pass
+    event.event_code = f"{company_id}-{max_consecutive + 1}"
     await db.flush()
 
     for jr in event_job_roles:

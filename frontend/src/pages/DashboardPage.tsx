@@ -6,6 +6,7 @@ import { CalendarDays, Users, Briefcase, BarChart2, Building2, UserCircle, Newsp
 import { useState, useEffect, useRef } from 'react'
 import api from '@/lib/api'
 import WhatsAppConnectBanner from '@/components/WhatsAppConnectBanner'
+import EmployeeDashboardPage from '@/pages/EmployeeDashboardPage'
 
 const GREEN      = '#2db84b'
 const GREEN_DARK = '#1e9038'
@@ -341,6 +342,9 @@ export default function DashboardPage() {
           })}
         </div>
       )}
+
+      {/* ══ EMPLOYEE ACTIONS PANEL (embedded in dashboard) ════════════════ */}
+      {user?.role === 'employee' && <EmployeeDashboardPage />}
 
       {/* ══ TAB: DASHBOARD ══════════════════════════════════════════════════ */}
       {activeTab === 'dashboard' && (

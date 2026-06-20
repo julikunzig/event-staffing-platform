@@ -21,6 +21,7 @@ from app.routers import (
     push,
     dashboard,
     payroll,
+    payments,
     company_email_settings,
     email_templates,
     email_delivery_logs,
@@ -104,6 +105,7 @@ app.include_router(whatsapp.router, prefix=settings.API_PREFIX)
 app.include_router(push.router, prefix=settings.API_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(payroll.router, prefix=settings.API_PREFIX)
+app.include_router(payments.router, prefix=settings.API_PREFIX)
 app.include_router(company_email_settings.router, prefix=settings.API_PREFIX)
 app.include_router(email_templates.router, prefix=settings.API_PREFIX)
 app.include_router(email_delivery_logs.router, prefix=settings.API_PREFIX)
