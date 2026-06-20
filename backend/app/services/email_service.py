@@ -272,13 +272,15 @@ async def _send_template_email_inferred_company(
     to_email: str,
     variables: dict[str, Any],
     company_name: str | None = None,
+    company_id: int | None = None,
 ) -> bool:
-    async with AsyncSessionLocal() as db:
-        company_id = await _find_company_id_for_email(
-            db=db,
-            to_email=to_email,
-            company_name=company_name,
-        )
+    if not company_id:
+        async with AsyncSessionLocal() as db:
+            company_id = await _find_company_id_for_email(
+                db=db,
+                to_email=to_email,
+                company_name=company_name,
+            )
 
     if not company_id:
         print(f"[EmailService] No se pudo determinar empresa para {to_email}")
@@ -464,10 +466,12 @@ async def send_event_published_email_personalized(
     zip_code: str,
     roles: List[dict],
     dress_code: Optional[str] = None,
+    company_id: Optional[int] = None,
 ) -> bool:
     return await _send_template_email_inferred_company(
         template_code="EVENT_PUBLISHED",
         to_email=employee_email,
+        company_id=company_id,
         variables={
             "employee_name": employee_name or "",
             "event_name": event_name,
@@ -495,6 +499,7 @@ async def send_event_invitation_email(
     role_name: str,
     hourly_rate: str,
     dress_code: Optional[str] = None,
+    company_id: Optional[int] = None,
 ) -> int:
     sent_count = 0
 
@@ -502,6 +507,7 @@ async def send_event_invitation_email(
         ok = await _send_template_email_inferred_company(
             template_code="EVENT_INVITATION",
             to_email=email,
+            company_id=company_id,
             variables={
                 "event_name": event_name,
                 "event_date": event_date,
@@ -528,10 +534,12 @@ async def send_application_notification_email(
     event_name: str,
     role_name: str,
     event_date: str,
+    company_id: Optional[int] = None,
 ) -> bool:
     return await _send_template_email_inferred_company(
         template_code="APPLICATION_RECEIVED",
         to_email=admin_email,
+        company_id=company_id,
         variables={
             "employee_name": employee_name,
             "event_name": event_name,
@@ -548,10 +556,12 @@ async def send_invitation_response_email(
     role_name: str,
     event_date: str,
     accepted: bool,
+    company_id: Optional[int] = None,
 ) -> bool:
     return await _send_template_email_inferred_company(
         template_code="INVITATION_RESPONSE",
         to_email=admin_email,
+        company_id=company_id,
         variables={
             "employee_name": employee_name,
             "event_name": event_name,
@@ -574,10 +584,12 @@ async def send_application_approved_email(
     role_name: str,
     hourly_rate: str,
     dress_code: Optional[str] = None,
+    company_id: Optional[int] = None,
 ) -> bool:
     return await _send_template_email_inferred_company(
         template_code="APPLICATION_APPROVED",
         to_email=employee_email,
+        company_id=company_id,
         variables={
             "event_name": event_name,
             "event_date": event_date,
@@ -613,10 +625,12 @@ async def send_employee_withdrew_email(
     event_name: str,
     role_name: str,
     event_date: str,
+    company_id: Optional[int] = None,
 ) -> bool:
     return await _send_template_email_inferred_company(
         template_code="EMPLOYEE_WITHDREW",
         to_email=admin_email,
+        company_id=company_id,
         variables={
             "employee_name": employee_name,
             "event_name": event_name,
