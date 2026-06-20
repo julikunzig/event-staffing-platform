@@ -62,6 +62,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { to: '/users',            label: t('nav.users'),     icon: Users,        show: isAdmin(user) },
     { to: '/job-roles',        label: t('nav.roles'),     icon: Briefcase,    show: isAdmin(user) },
     { to: '/company-settings', label: t('nav.myCompany'), icon: Settings,     show: isAdmin(user) && user?.role !== 'super_admin' },
+	{ to: '/email-settings',   label: 'Correo electrónico', icon: Settings, show: isAdmin(user)},
     { to: '/reports',          label: t('nav.reports'),   icon: BarChart2,    show: isAdminOrCoord(user) || user?.role === 'employee' },
     { to: '/payroll',          label: t('nav.payroll'),   icon: DollarSign,   show: isAdmin(user) },
   ]

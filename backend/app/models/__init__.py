@@ -17,14 +17,34 @@ from app.models.event_document import EventDocument
 from app.models.news import News
 from app.models.push_subscription import PushSubscription
 from app.models.payroll import PayrollSettlement, PayrollSettlementItem
+from app.models.company_email_settings import CompanyEmailSettings
+from app.models.email_template import EmailTemplate
+from app.models.email_delivery_log import EmailDeliveryLog
 
 __all__ = [
-    "Profile", "Company", "User", "UserCompanyMembership",
-    "JobRole", "EmployeeJobRole", "WeeklyHoursConfig",
-    "Event", "EventJobRole", "EventAssignment",
-    "Shift", "Notification", "EmployeeProfile", "EventRating",
-    "PasswordResetToken", "UserDocument",
-    "EventCoordinator", "EventDocument",
-    "News", "PushSubscription",
-    "PayrollSettlement", "PayrollSettlementItem",
+    "Profile",
+    "Company",
+    "User",
+    "UserCompanyMembership",
+    "JobRole",
+    "EmployeeJobRole",
+    "WeeklyHoursConfig",
+    "Event",
+    "EventJobRole",
+    "EventAssignment",
+    "Shift",
+    "Notification",
+    "EmployeeProfile",
+    "EventRating",
+    "PasswordResetToken",
+    "UserDocument",
+    "EventCoordinator",
+    "EventDocument",
+    "News",
+    "PushSubscription",
+    "PayrollSettlement",
+    "PayrollSettlementItem",
+    "CompanyEmailSettings",
+    "EmailTemplate",
+    "EmailDeliveryLog",
 ]

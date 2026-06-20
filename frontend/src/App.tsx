@@ -22,6 +22,7 @@ import NewsPage from '@/pages/NewsPage'
 import EventHoursPage from '@/pages/EventHoursPage'
 import HelpPage from '@/pages/HelpPage'
 import PayrollPage from '@/pages/PayrollPage'
+import EmailSettingsPage from '@/pages/EmailSettingsPage'
 
 const queryClient = new QueryClient()
 
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="/users" element={<ProtectedRoute roles={['admin', 'super_admin']}><UsersPage /></ProtectedRoute>} />
             <Route path="/companies" element={<ProtectedRoute roles={['super_admin']}><CompaniesPage /></ProtectedRoute>} />
             <Route path="/company-settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><CompanySettingsPage /></ProtectedRoute>} />
+			<Route path="/email-settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><EmailSettingsPage /> </ProtectedRoute> }/>
             <Route path="/profile" element={<ProtectedRoute><EmployeeProfilePage /></ProtectedRoute>} />
             <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
             <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />

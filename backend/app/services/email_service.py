@@ -1,301 +1,295 @@
 """
-Email service - uses Resend API to send bilingual notifications.
+Email service.
+
+Nuevo motor de correo:
+- Usa SMTP por empresa desde company_email_settings.
+- Usa plantillas desde email_templates.
+- Registra envíos en email_delivery_logs.
+- Mantiene las funciones públicas antiguas para no romper routers existentes.
 """
 
-import os
-from typing import Optional, List
+import smtplib
+from datetime import datetime
+from email.message import EmailMessage
+from typing import Any, Optional, List
 
-# Read from environment variable (set in backend/.env)
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-FROM_ADDRESS = "EventsControl <onboarding@resend.dev>"
-# Resend test mode: can only send to the account owner's email.
-# All emails are redirected here until a domain is verified in resend.com/domains
-TEST_RECIPIENT = "julian.kunzig@gmail.com"
+from sqlalchemy import select
+
+from app.core.database import AsyncSessionLocal
+from app.models import (
+    Company,
+    User,
+    UserCompanyMembership,
+    CompanyEmailSettings,
+    EmailTemplate,
+    EmailDeliveryLog,
+)
 
 
-class EmailTemplates:
-    """Email templates in English and Spanish"""
+def _now_utc():
+    return datetime.utcnow()
 
-    @staticmethod
-    def event_published_to_roles(
-        event_name: str,
-        event_date: str,
-        start_time: str,
-        address: str,
-        city: str,
-        state: str,
-        zip_code: str,
-        roles: List[dict],  # [{"name": "Server", "rate": "20.00"}, ...]
-        dress_code: Optional[str] = None,
-    ) -> tuple[str, str]:
-        """Email sent to employees with required roles when event is published"""
 
-        roles_text_en = "\n".join(
-            [f"• {role['name']}: {role.get('slots', 1)} slot(s) at {role.get('start_time', '')} — ${role['rate']}/hour" for role in roles]
+def _normalize_email(email: str | None) -> str:
+    return (email or "").strip().lower()
+
+
+def _render_template(content: str | None, variables: dict[str, Any]) -> str:
+    rendered = content or ""
+
+    for key, value in variables.items():
+        rendered = rendered.replace(
+            "{{" + key + "}}",
+            "" if value is None else str(value),
         )
-        roles_text_es = "\n".join(
-            [f"• {role['name']}: {role.get('slots', 1)} cupo(s) a las {role.get('start_time', '')} — ${role['rate']}/hora" for role in roles]
+
+    return rendered
+
+
+def _roles_to_text(roles: List[dict] | None) -> str:
+    if not roles:
+        return ""
+
+    lines = []
+
+    for role in roles:
+        name = role.get("name", "")
+        slots = role.get("slots", 1)
+        start_time = role.get("start_time", "")
+        rate = role.get("rate", "")
+
+        parts = [f"• {name}"]
+
+        if slots:
+            parts.append(f"{slots} cupo(s)")
+
+        if start_time:
+            parts.append(f"a las {start_time}")
+
+        if rate:
+            parts.append(f"${rate}/hora")
+
+        lines.append(" — ".join(parts))
+
+    return "\n".join(lines)
+
+
+def _send_smtp_email(
+    *,
+    smtp_host: str,
+    smtp_port: int,
+    smtp_username: str | None,
+    smtp_password: str | None,
+    from_email: str,
+    from_name: str | None,
+    to_email: str,
+    subject: str,
+    html_body: str | None,
+    text_body: str | None,
+    use_tls: bool,
+    use_ssl: bool,
+) -> None:
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
+    msg["To"] = to_email
+
+    if text_body:
+        msg.set_content(text_body)
+    else:
+        msg.set_content("Este correo requiere un cliente compatible con HTML.")
+
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
+
+    if use_ssl:
+        server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20)
+    else:
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=20)
+
+    try:
+        server.ehlo()
+
+        if use_tls and not use_ssl:
+            server.starttls()
+            server.ehlo()
+
+        if smtp_username and smtp_password:
+            server.login(smtp_username, smtp_password)
+
+        server.send_message(msg)
+    finally:
+        server.quit()
+
+
+async def _find_company_id_for_email(
+    *,
+    db,
+    to_email: str,
+    company_name: str | None = None,
+) -> int | None:
+    email = _normalize_email(to_email)
+
+    if company_name:
+        result = await db.execute(
+            select(Company)
+            .where(Company.name.ilike(company_name.strip()))
+            .order_by(Company.id.asc())
+            .limit(1)
+        )
+        company = result.scalar_one_or_none()
+        if company:
+            return company.id
+
+    if email:
+        result = await db.execute(
+            select(UserCompanyMembership.company_id)
+            .join(User, User.id == UserCompanyMembership.user_id)
+            .where(
+                User.email == email,
+                User.is_active == True,
+                UserCompanyMembership.is_active == True,
+            )
+            .order_by(UserCompanyMembership.company_id.asc())
+            .limit(1)
+        )
+        company_id = result.scalar_one_or_none()
+        if company_id:
+            return int(company_id)
+
+    result = await db.execute(
+        select(Company.id)
+        .where(Company.is_active == True)
+        .order_by(Company.id.asc())
+        .limit(1)
+    )
+    company_id = result.scalar_one_or_none()
+    return int(company_id) if company_id else None
+
+
+async def _send_template_email(
+    *,
+    company_id: int,
+    template_code: str,
+    to_email: str,
+    variables: dict[str, Any],
+) -> bool:
+    code = template_code.strip().upper()
+    recipient = _normalize_email(to_email)
+
+    async with AsyncSessionLocal() as db:
+        template_result = await db.execute(
+            select(EmailTemplate).where(
+                EmailTemplate.company_id == company_id,
+                EmailTemplate.code == code,
+                EmailTemplate.is_active == True,
+            )
+        )
+        template = template_result.scalar_one_or_none()
+
+        if not template:
+            print(
+                f"[EmailService] Plantilla no encontrada o inactiva: "
+                f"company_id={company_id}, code={code}"
+            )
+            return False
+
+        smtp_result = await db.execute(
+            select(CompanyEmailSettings).where(
+                CompanyEmailSettings.company_id == company_id,
+                CompanyEmailSettings.is_active == True,
+            )
+        )
+        smtp_settings = smtp_result.scalar_one_or_none()
+
+        subject = _render_template(template.subject, variables)
+        html_body = _render_template(template.html_body, variables)
+        text_body = _render_template(template.text_body or "", variables)
+
+        log = EmailDeliveryLog(
+            company_id=company_id,
+            template_id=template.id,
+            recipient_email=recipient,
+            subject=subject,
+            status="pending",
+            provider="smtp",
+            html_body=html_body,
+            text_body=text_body,
+            variables_json=variables,
+        )
+        db.add(log)
+        await db.flush()
+
+        if not smtp_settings:
+            log.status = "failed"
+            log.error_message = "Configuración SMTP activa no encontrada"
+            await db.commit()
+            print(f"[EmailService] SMTP no configurado para company_id={company_id}")
+            return False
+
+        try:
+            _send_smtp_email(
+                smtp_host=smtp_settings.smtp_host,
+                smtp_port=smtp_settings.smtp_port,
+                smtp_username=smtp_settings.smtp_username,
+                smtp_password=smtp_settings.smtp_password,
+                from_email=smtp_settings.from_email,
+                from_name=smtp_settings.from_name,
+                to_email=recipient,
+                subject=subject,
+                html_body=html_body,
+                text_body=text_body,
+                use_tls=smtp_settings.use_tls,
+                use_ssl=smtp_settings.use_ssl,
+            )
+
+            log.status = "success"
+            log.sent_at = _now_utc()
+            log.error_message = None
+            await db.commit()
+
+            print(
+                f"[EmailService] Email enviado: "
+                f"template={code}, to={recipient}, company_id={company_id}"
+            )
+            return True
+
+        except Exception as exc:
+            log.status = "failed"
+            log.error_message = str(exc)
+            await db.commit()
+
+            print(
+                f"[EmailService] Error enviando email: "
+                f"template={code}, to={recipient}, error={exc}"
+            )
+            return False
+
+
+async def _send_template_email_inferred_company(
+    *,
+    template_code: str,
+    to_email: str,
+    variables: dict[str, Any],
+    company_name: str | None = None,
+) -> bool:
+    async with AsyncSessionLocal() as db:
+        company_id = await _find_company_id_for_email(
+            db=db,
+            to_email=to_email,
+            company_name=company_name,
         )
 
-        html_en = f"""
-        <h2>New Event Available: {event_name}</h2>
-        <p>A new event has been published and is looking for staff with your qualifications!</p>
-        
-        <h3>Event Details:</h3>
-        <ul>
-            <li><strong>Event:</strong> {event_name}</li>
-            <li><strong>Date:</strong> {event_date}</li>
-            <li><strong>Time:</strong> {start_time}</li>
-            <li><strong>Location:</strong> {address}, {city}, {state} {zip_code}</li>
-            {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-        </ul>
-        
-        <h3>Positions Available:</h3>
-        <pre>{roles_text_en}</pre>
-        
-        <p>Log in to the system to apply for this event!</p>
-        """
+    if not company_id:
+        print(f"[EmailService] No se pudo determinar empresa para {to_email}")
+        return False
 
-        html_es = f"""
-        <h2>Nuevo Evento Disponible: {event_name}</h2>
-        <p>¡Se ha publicado un nuevo evento y está buscando personal con tus calificaciones!</p>
-        
-        <h3>Detalles del Evento:</h3>
-        <ul>
-            <li><strong>Evento:</strong> {event_name}</li>
-            <li><strong>Fecha:</strong> {event_date}</li>
-            <li><strong>Hora:</strong> {start_time}</li>
-            <li><strong>Ubicación:</strong> {address}, {city}, {state} {zip_code}</li>
-            {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-        </ul>
-        
-        <h3>Posiciones Disponibles:</h3>
-        <pre>{roles_text_es}</pre>
-        
-        <p>¡Inicia sesión en el sistema para aplicar a este evento!</p>
-        """
-
-        return html_en, html_es
-
-    @staticmethod
-    def event_invitation(
-        event_name: str,
-        event_date: str,
-        start_time: str,
-        address: str,
-        city: str,
-        state: str,
-        zip_code: str,
-        role_name: str,
-        hourly_rate: str,
-        dress_code: Optional[str] = None,
-    ) -> tuple[str, str]:
-        """Email sent to invited employees"""
-
-        html_en = f"""
-        <h2>You're Invited to Work: {event_name}</h2>
-        <p>You have been invited to work at an event!</p>
-        
-        <h3>Event Details:</h3>
-        <ul>
-            <li><strong>Event:</strong> {event_name}</li>
-            <li><strong>Date:</strong> {event_date}</li>
-            <li><strong>Time:</strong> {start_time}</li>
-            <li><strong>Location:</strong> {address}, {city}, {state} {zip_code}</li>
-            <li><strong>Position:</strong> {role_name}</li>
-            <li><strong>Pay Rate:</strong> ${hourly_rate}/hour</li>
-            {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-        </ul>
-        
-        <p>Log in to the system to accept or decline this invitation.</p>
-        """
-
-        html_es = f"""
-        <h2>¡Has Sido Invitado a Trabajar: {event_name}</h2>
-        <p>¡Has sido invitado a trabajar en un evento!</p>
-        
-        <h3>Detalles del Evento:</h3>
-        <ul>
-            <li><strong>Evento:</strong> {event_name}</li>
-            <li><strong>Fecha:</strong> {event_date}</li>
-            <li><strong>Hora:</strong> {start_time}</li>
-            <li><strong>Ubicación:</strong> {address}, {city}, {state} {zip_code}</li>
-            <li><strong>Posición:</strong> {role_name}</li>
-            <li><strong>Tarifa:</strong> ${hourly_rate}/hora</li>
-            {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-        </ul>
-        
-        <p>Inicia sesión en el sistema para aceptar o rechazar esta invitación.</p>
-        """
-
-        return html_en, html_es
-
-    @staticmethod
-    def employee_applied_to_event(
-        employee_name: str,
-        event_name: str,
-        role_name: str,
-        event_date: str,
-    ) -> tuple[str, str]:
-        """Email sent to admin when employee applies to event"""
-
-        html_en = f"""
-        <h2>New Application: {event_name}</h2>
-        <p><strong>{employee_name}</strong> has applied to work as a <strong>{role_name}</strong> for your event.</p>
-        
-        <h3>Event Details:</h3>
-        <ul>
-            <li><strong>Event:</strong> {event_name}</li>
-            <li><strong>Date:</strong> {event_date}</li>
-            <li><strong>Position:</strong> {role_name}</li>
-            <li><strong>Applicant:</strong> {employee_name}</li>
-        </ul>
-        
-        <p>Log in to the system to approve or reject this application.</p>
-        """
-
-        html_es = f"""
-        <h2>Nueva Aplicación: {event_name}</h2>
-        <p><strong>{employee_name}</strong> ha aplicado para trabajar como <strong>{role_name}</strong> en tu evento.</p>
-        
-        <h3>Detalles del Evento:</h3>
-        <ul>
-            <li><strong>Evento:</strong> {event_name}</li>
-            <li><strong>Fecha:</strong> {event_date}</li>
-            <li><strong>Posición:</strong> {role_name}</li>
-            <li><strong>Solicitante:</strong> {employee_name}</li>
-        </ul>
-        
-        <p>Inicia sesión en el sistema para aprobar o rechazar esta aplicación.</p>
-        """
-
-        return html_en, html_es
-
-    @staticmethod
-    def invitation_response(
-        employee_name: str,
-        event_name: str,
-        role_name: str,
-        event_date: str,
-        accepted: bool,
-    ) -> tuple[str, str]:
-        """Email sent to admin when employee accepts/rejects invitation"""
-
-        status_en = "accepted" if accepted else "declined"
-        status_es = "aceptó" if accepted else "rechazó"
-
-        html_en = f"""
-        <h2>Invitation Response: {event_name}</h2>
-        <p><strong>{employee_name}</strong> has <strong>{status_en}</strong> the invitation to work as a <strong>{role_name}</strong>.</p>
-        
-        <h3>Event Details:</h3>
-        <ul>
-            <li><strong>Event:</strong> {event_name}</li>
-            <li><strong>Date:</strong> {event_date}</li>
-            <li><strong>Position:</strong> {role_name}</li>
-            <li><strong>Employee:</strong> {employee_name}</li>
-            <li><strong>Response:</strong> {status_en.upper()}</li>
-        </ul>
-        
-        {f'<p>You may need to invite another employee if this position is still open.</p>' if not accepted else '<p>This employee is confirmed for the event.</p>'}
-        """
-
-        html_es = f"""
-        <h2>Respuesta a Invitación: {event_name}</h2>
-        <p><strong>{employee_name}</strong> ha <strong>{status_es}</strong> la invitación para trabajar como <strong>{role_name}</strong>.</p>
-        
-        <h3>Detalles del Evento:</h3>
-        <ul>
-            <li><strong>Evento:</strong> {event_name}</li>
-            <li><strong>Fecha:</strong> {event_date}</li>
-            <li><strong>Posición:</strong> {role_name}</li>
-            <li><strong>Empleado:</strong> {employee_name}</li>
-            <li><strong>Respuesta:</strong> {status_es.upper()}</li>
-        </ul>
-        
-        {f'<p>Es posible que debas invitar a otro empleado si esta posición aún está disponible.</p>' if not accepted else '<p>Este empleado está confirmado para el evento.</p>'}
-        """
-
-        return html_en, html_es
-
-    @staticmethod
-    def application_approved(
-        event_name: str,
-        event_date: str,
-        start_time: str,
-        address: str,
-        city: str,
-        state: str,
-        zip_code: str,
-        role_name: str,
-        hourly_rate: str,
-        dress_code: Optional[str] = None,
-    ) -> tuple[str, str]:
-        """Email sent to employee when application is approved"""
-
-        html_en = f"""
-        <h2>Application Approved: {event_name}</h2>
-        <p>Congratulations! Your application has been approved.</p>
-        
-        <h3>Event Details:</h3>
-        <ul>
-            <li><strong>Event:</strong> {event_name}</li>
-            <li><strong>Date:</strong> {event_date}</li>
-            <li><strong>Time:</strong> {start_time}</li>
-            <li><strong>Location:</strong> {address}, {city}, {state} {zip_code}</li>
-            <li><strong>Position:</strong> {role_name}</li>
-            <li><strong>Pay Rate:</strong> ${hourly_rate}/hour</li>
-            {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-        </ul>
-        
-        <p>Log in to the system to view more details and prepare for the event.</p>
-        """
-
-        html_es = f"""
-        <h2>Aplicación Aprobada: {event_name}</h2>
-        <p>¡Felicidades! Tu aplicación ha sido aprobada.</p>
-        
-        <h3>Detalles del Evento:</h3>
-        <ul>
-            <li><strong>Evento:</strong> {event_name}</li>
-            <li><strong>Fecha:</strong> {event_date}</li>
-            <li><strong>Hora:</strong> {start_time}</li>
-            <li><strong>Ubicación:</strong> {address}, {city}, {state} {zip_code}</li>
-            <li><strong>Posición:</strong> {role_name}</li>
-            <li><strong>Tarifa:</strong> ${hourly_rate}/hora</li>
-            {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-        </ul>
-        
-        <p>Inicia sesión en el sistema para ver más detalles y prepararte para el evento.</p>
-        """
-
-        return html_en, html_es
-
-    @staticmethod
-    def password_reset(reset_link: str) -> tuple[str, str]:
-        """Email sent to user for password reset"""
-
-        html_en = f"""
-        <h2>Password Reset Request</h2>
-        <p>You requested to reset your password. Click the link below to create a new password:</p>
-        
-        <p><a href="{reset_link}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Password</a></p>
-        
-        <p>This link will expire in 2 hours.</p>
-        <p>If you didn't request this, please ignore this email.</p>
-        """
-
-        html_es = f"""
-        <h2>Solicitud de Restablecimiento de Contraseña</h2>
-        <p>Solicitaste restablecer tu contraseña. Haz clic en el enlace a continuación para crear una nueva contraseña:</p>
-        
-        <p><a href="{reset_link}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Restablecer Contraseña</a></p>
-        
-        <p>Este enlace expirará en 2 horas.</p>
-        <p>Si no solicitaste esto, por favor ignora este correo.</p>
-        """
-
-        return html_en, html_es
+    return await _send_template_email(
+        company_id=company_id,
+        template_code=template_code,
+        to_email=to_email,
+        variables=variables,
+    )
 
 
 async def send_email(
@@ -306,56 +300,121 @@ async def send_email(
     html_es: str,
 ) -> bool:
     """
-    Send bilingual email via Resend API.
-    In test mode (no verified domain), all emails are redirected to TEST_RECIPIENT
-    with the original recipient noted in the subject line.
-    """
-    try:
-        import resend
-        resend.api_key = RESEND_API_KEY
+    Compatibilidad con llamadas antiguas.
 
-        combined_html = f"""<html>
+    Ya no usa Resend. Este método intenta enviar un correo genérico usando
+    SMTP de la empresa inferida por el destinatario.
+
+    Idealmente, las llamadas deben migrarse a plantillas.
+    """
+    async with AsyncSessionLocal() as db:
+        company_id = await _find_company_id_for_email(db=db, to_email=to_email)
+
+        if not company_id:
+            print(f"[EmailService] No se pudo determinar empresa para {to_email}")
+            return False
+
+        smtp_result = await db.execute(
+            select(CompanyEmailSettings).where(
+                CompanyEmailSettings.company_id == company_id,
+                CompanyEmailSettings.is_active == True,
+            )
+        )
+        smtp_settings = smtp_result.scalar_one_or_none()
+
+        subject = f"{subject_es} / {subject_en}"
+        recipient = _normalize_email(to_email)
+
+        combined_html = f"""
+<html>
 <head>
   <meta charset="UTF-8">
   <style>
-    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }}
-    .lang-header {{ font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }}
-    .section {{ margin-bottom: 40px; padding-bottom: 30px; border-bottom: 2px solid #eee; }}
-    h2 {{ color: #2563eb; }}
+    body {{
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 20px;
+    }}
+    .section {{
+      margin-bottom: 36px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid #e5e7eb;
+    }}
+    .lang-header {{
+      font-size: 11px;
+      color: #667085;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      font-weight: bold;
+    }}
   </style>
 </head>
 <body>
   <div class="section">
-    <div class="lang-header">🇺🇸 English</div>
-    {html_en}
-  </div>
-  <div class="section">
-    <div class="lang-header">🇪🇸 Español</div>
+    <div class="lang-header">Español</div>
     {html_es}
   </div>
+  <div class="section">
+    <div class="lang-header">English</div>
+    {html_en}
+  </div>
 </body>
-</html>"""
+</html>
+""".strip()
 
-        # Resend test mode: redirect to TEST_RECIPIENT, note original in subject
-        actual_to = TEST_RECIPIENT
-        subject = f"{subject_en} / {subject_es}"
-        if actual_to != to_email:
-            subject = f"[Para: {to_email}] {subject}"
+        text_body = f"{subject_es}\n\n{subject_en}"
 
-        response = resend.Emails.send({
-            "from": FROM_ADDRESS,
-            "to": [actual_to],
-            "subject": subject,
-            "html": combined_html,
-        })
+        log = EmailDeliveryLog(
+            company_id=company_id,
+            template_id=None,
+            recipient_email=recipient,
+            subject=subject,
+            status="pending",
+            provider="smtp",
+            html_body=combined_html,
+            text_body=text_body,
+            variables_json=None,
+        )
+        db.add(log)
+        await db.flush()
 
-        email_id = response.get("id")
-        print(f"✅ Email sent via Resend | to={actual_to} | original={to_email} | id={email_id}")
-        return email_id is not None
+        if not smtp_settings:
+            log.status = "failed"
+            log.error_message = "Configuración SMTP activa no encontrada"
+            await db.commit()
+            return False
 
-    except Exception as e:
-        print(f"❌ Resend error sending to {to_email}: {str(e)}")
-        return False
+        try:
+            _send_smtp_email(
+                smtp_host=smtp_settings.smtp_host,
+                smtp_port=smtp_settings.smtp_port,
+                smtp_username=smtp_settings.smtp_username,
+                smtp_password=smtp_settings.smtp_password,
+                from_email=smtp_settings.from_email,
+                from_name=smtp_settings.from_name,
+                to_email=recipient,
+                subject=subject,
+                html_body=combined_html,
+                text_body=text_body,
+                use_tls=smtp_settings.use_tls,
+                use_ssl=smtp_settings.use_ssl,
+            )
+
+            log.status = "success"
+            log.sent_at = _now_utc()
+            log.error_message = None
+            await db.commit()
+            return True
+
+        except Exception as exc:
+            log.status = "failed"
+            log.error_message = str(exc)
+            await db.commit()
+            return False
 
 
 async def send_event_published_email(
@@ -370,23 +429,58 @@ async def send_event_published_email(
     roles: List[dict],
     dress_code: Optional[str] = None,
 ) -> int:
-    """Send event published notification to employees with required roles"""
-    html_en, html_es = EmailTemplates.event_published_to_roles(
-        event_name, event_date, start_time, address, city, state, zip_code, roles, dress_code
-    )
-
     sent_count = 0
+
     for email in employee_emails:
-        if await send_email(
-            email,
-            f"New Event Available: {event_name}",
-            f"Nuevo Evento Disponible: {event_name}",
-            html_en,
-            html_es,
-        ):
+        ok = await send_event_published_email_personalized(
+            employee_email=email,
+            employee_name="",
+            event_name=event_name,
+            event_date=event_date,
+            start_time=start_time,
+            address=address,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            roles=roles,
+            dress_code=dress_code,
+        )
+
+        if ok:
             sent_count += 1
 
     return sent_count
+
+
+async def send_event_published_email_personalized(
+    employee_email: str,
+    employee_name: str,
+    event_name: str,
+    event_date: str,
+    start_time: str,
+    address: str,
+    city: str,
+    state: str,
+    zip_code: str,
+    roles: List[dict],
+    dress_code: Optional[str] = None,
+) -> bool:
+    return await _send_template_email_inferred_company(
+        template_code="EVENT_PUBLISHED",
+        to_email=employee_email,
+        variables={
+            "employee_name": employee_name or "",
+            "event_name": event_name,
+            "event_date": event_date,
+            "start_time": start_time,
+            "address": address,
+            "city": city,
+            "state": state,
+            "zip_code": zip_code,
+            "roles": _roles_to_text(roles),
+            "dress_code": dress_code or "No especificado",
+        },
+    )
 
 
 async def send_event_invitation_email(
@@ -402,20 +496,27 @@ async def send_event_invitation_email(
     hourly_rate: str,
     dress_code: Optional[str] = None,
 ) -> int:
-    """Send event invitation to specific employees"""
-    html_en, html_es = EmailTemplates.event_invitation(
-        event_name, event_date, start_time, address, city, state, zip_code, role_name, hourly_rate, dress_code
-    )
-
     sent_count = 0
+
     for email in employee_emails:
-        if await send_email(
-            email,
-            f"You're Invited: {event_name}",
-            f"¡Has Sido Invitado: {event_name}",
-            html_en,
-            html_es,
-        ):
+        ok = await _send_template_email_inferred_company(
+            template_code="EVENT_INVITATION",
+            to_email=email,
+            variables={
+                "event_name": event_name,
+                "event_date": event_date,
+                "start_time": start_time,
+                "address": address,
+                "city": city,
+                "state": state,
+                "zip_code": zip_code,
+                "role_name": role_name,
+                "hourly_rate": hourly_rate,
+                "dress_code": dress_code or "No especificado",
+            },
+        )
+
+        if ok:
             sent_count += 1
 
     return sent_count
@@ -428,17 +529,15 @@ async def send_application_notification_email(
     role_name: str,
     event_date: str,
 ) -> bool:
-    """Send notification to admin when employee applies"""
-    html_en, html_es = EmailTemplates.employee_applied_to_event(
-        employee_name, event_name, role_name, event_date
-    )
-
-    return await send_email(
-        admin_email,
-        f"New Application: {event_name}",
-        f"Nueva Aplicación: {event_name}",
-        html_en,
-        html_es,
+    return await _send_template_email_inferred_company(
+        template_code="APPLICATION_RECEIVED",
+        to_email=admin_email,
+        variables={
+            "employee_name": employee_name,
+            "event_name": event_name,
+            "role_name": role_name,
+            "event_date": event_date,
+        },
     )
 
 
@@ -450,20 +549,16 @@ async def send_invitation_response_email(
     event_date: str,
     accepted: bool,
 ) -> bool:
-    """Send notification to admin when employee responds to invitation"""
-    html_en, html_es = EmailTemplates.invitation_response(
-        employee_name, event_name, role_name, event_date, accepted
-    )
-
-    status_en = "Accepted" if accepted else "Declined"
-    status_es = "Aceptada" if accepted else "Rechazada"
-
-    return await send_email(
-        admin_email,
-        f"Invitation Response: {event_name} - {status_en}",
-        f"Respuesta a Invitación: {event_name} - {status_es}",
-        html_en,
-        html_es,
+    return await _send_template_email_inferred_company(
+        template_code="INVITATION_RESPONSE",
+        to_email=admin_email,
+        variables={
+            "employee_name": employee_name,
+            "event_name": event_name,
+            "role_name": role_name,
+            "event_date": event_date,
+            "response": "Aceptada" if accepted else "Rechazada",
+        },
     )
 
 
@@ -480,17 +575,21 @@ async def send_application_approved_email(
     hourly_rate: str,
     dress_code: Optional[str] = None,
 ) -> bool:
-    """Send confirmation email to employee when application is approved"""
-    html_en, html_es = EmailTemplates.application_approved(
-        event_name, event_date, start_time, address, city, state, zip_code, role_name, hourly_rate, dress_code
-    )
-
-    return await send_email(
-        employee_email,
-        f"Application Approved: {event_name}",
-        f"Aplicación Aprobada: {event_name}",
-        html_en,
-        html_es,
+    return await _send_template_email_inferred_company(
+        template_code="APPLICATION_APPROVED",
+        to_email=employee_email,
+        variables={
+            "event_name": event_name,
+            "event_date": event_date,
+            "start_time": start_time,
+            "address": address,
+            "city": city,
+            "state": state,
+            "zip_code": zip_code,
+            "role_name": role_name,
+            "hourly_rate": hourly_rate,
+            "dress_code": dress_code or "No especificado",
+        },
     )
 
 
@@ -498,89 +597,13 @@ async def send_password_reset_email(
     user_email: str,
     reset_link: str,
 ) -> bool:
-    """Send password reset email to user"""
-    html_en, html_es = EmailTemplates.password_reset(reset_link)
-
-    return await send_email(
-        user_email,
-        "Password Reset Request",
-        "Solicitud de Restablecimiento de Contraseña",
-        html_en,
-        html_es,
-    )
-
-
-async def send_event_published_email_personalized(
-    employee_email: str,
-    employee_name: str,
-    event_name: str,
-    event_date: str,
-    start_time: str,
-    address: str,
-    city: str,
-    state: str,
-    zip_code: str,
-    roles: List[dict],
-    dress_code: Optional[str] = None,
-) -> bool:
-    """Send a personalized event published notification to a single employee."""
-
-    roles_text_en = "\n".join(
-        [f"• {role['name']}: {role.get('slots', 1)} slot(s) at {role.get('start_time', '')} — ${role['rate']}/hour" for role in roles]
-    )
-    roles_text_es = "\n".join(
-        [f"• {role['name']}: {role.get('slots', 1)} cupo(s) a las {role.get('start_time', '')} — ${role['rate']}/hora" for role in roles]
-    )
-
-    greeting_en = f"Hi {employee_name}," if employee_name else "Hello,"
-    greeting_es = f"Hola {employee_name}," if employee_name else "Hola,"
-
-    html_en = f"""
-    <h2>{greeting_en}</h2>
-    <h3>New Event Available: {event_name}</h3>
-    <p>A new event has been published and is looking for staff with your qualifications!</p>
-
-    <h4>Event Details:</h4>
-    <ul>
-        <li><strong>Event:</strong> {event_name}</li>
-        <li><strong>Date:</strong> {event_date}</li>
-        <li><strong>Time:</strong> {start_time}</li>
-        <li><strong>Location:</strong> {address}, {city}, {state} {zip_code}</li>
-        {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-    </ul>
-
-    <h4>Positions Available:</h4>
-    <pre>{roles_text_en}</pre>
-
-    <p>Log in to the system to apply for this event!</p>
-    """
-
-    html_es = f"""
-    <h2>{greeting_es}</h2>
-    <h3>Nuevo Evento Disponible: {event_name}</h3>
-    <p>¡Se ha publicado un nuevo evento y está buscando personal con tus calificaciones!</p>
-
-    <h4>Detalles del Evento:</h4>
-    <ul>
-        <li><strong>Evento:</strong> {event_name}</li>
-        <li><strong>Fecha:</strong> {event_date}</li>
-        <li><strong>Hora:</strong> {start_time}</li>
-        <li><strong>Ubicación:</strong> {address}, {city}, {state} {zip_code}</li>
-        {f'<li><strong>Dress Code:</strong> {dress_code}</li>' if dress_code else ''}
-    </ul>
-
-    <h4>Posiciones Disponibles:</h4>
-    <pre>{roles_text_es}</pre>
-
-    <p>¡Inicia sesión en el sistema para aplicar a este evento!</p>
-    """
-
-    return await send_email(
-        employee_email,
-        f"New Event Available: {event_name}",
-        f"Nuevo Evento Disponible: {event_name}",
-        html_en,
-        html_es,
+    return await _send_template_email_inferred_company(
+        template_code="PASSWORD_RESET",
+        to_email=user_email,
+        variables={
+            "reset_link": reset_link,
+            "password_reset_link": reset_link,
+        },
     )
 
 
@@ -591,44 +614,15 @@ async def send_employee_withdrew_email(
     role_name: str,
     event_date: str,
 ) -> bool:
-    """Send notification to admin when employee withdraws from confirmed event"""
-
-    html_en = f"""
-    <h2>⚠️ Employee Withdrew: {event_name}</h2>
-    <p><strong>{employee_name}</strong> has <strong>withdrawn</strong> from the event where they were confirmed as <strong>{role_name}</strong>.</p>
-    
-    <h3>Event Details:</h3>
-    <ul>
-        <li><strong>Event:</strong> {event_name}</li>
-        <li><strong>Date:</strong> {event_date}</li>
-        <li><strong>Position:</strong> {role_name}</li>
-        <li><strong>Employee:</strong> {employee_name}</li>
-    </ul>
-    
-    <p>You may need to find a replacement for this position.</p>
-    """
-
-    html_es = f"""
-    <h2>⚠️ Empleado Se Retiró: {event_name}</h2>
-    <p><strong>{employee_name}</strong> se ha <strong>retirado</strong> del evento donde estaba confirmado como <strong>{role_name}</strong>.</p>
-    
-    <h3>Detalles del Evento:</h3>
-    <ul>
-        <li><strong>Evento:</strong> {event_name}</li>
-        <li><strong>Fecha:</strong> {event_date}</li>
-        <li><strong>Posición:</strong> {role_name}</li>
-        <li><strong>Empleado:</strong> {employee_name}</li>
-    </ul>
-    
-    <p>Es posible que necesites encontrar un reemplazo para esta posición.</p>
-    """
-
-    return await send_email(
-        admin_email,
-        f"Employee Withdrew: {event_name}",
-        f"Empleado Se Retiró: {event_name}",
-        html_en,
-        html_es,
+    return await _send_template_email_inferred_company(
+        template_code="EMPLOYEE_WITHDREW",
+        to_email=admin_email,
+        variables={
+            "employee_name": employee_name,
+            "event_name": event_name,
+            "role_name": role_name,
+            "event_date": event_date,
+        },
     )
 
 
@@ -640,48 +634,18 @@ async def send_welcome_email(
     company_name: str,
     login_url: str,
 ) -> bool:
-    """Send welcome email to new user with login credentials."""
-
-    html_en = f"""
-    <h2>Welcome to EventsControl, {user_name}!</h2>
-    <p>Your account has been created by <strong>{company_name}</strong>. Below are your login credentials:</p>
-    
-    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin: 16px 0;">
-        <p style="margin: 0 0 8px;"><strong>Username/Email:</strong> {username}</p>
-        <p style="margin: 0 0 8px;"><strong>Temporary Password:</strong> {password}</p>
-        <p style="margin: 0;"><strong>Company:</strong> {company_name}</p>
-    </div>
-    
-    <p>⚠️ <strong>Important:</strong> You will be required to change your password on your first login.</p>
-    
-    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Login to EventsControl</a></p>
-    
-    <p style="font-size: 12px; color: #6b7280;">If the button doesn't work, copy and paste this link: {login_url}</p>
-    """
-
-    html_es = f"""
-    <h2>¡Bienvenido a EventsControl, {user_name}!</h2>
-    <p>Tu cuenta ha sido creada por <strong>{company_name}</strong>. A continuación tus credenciales de acceso:</p>
-    
-    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin: 16px 0;">
-        <p style="margin: 0 0 8px;"><strong>Usuario/Email:</strong> {username}</p>
-        <p style="margin: 0 0 8px;"><strong>Contraseña temporal:</strong> {password}</p>
-        <p style="margin: 0;"><strong>Empresa:</strong> {company_name}</p>
-    </div>
-    
-    <p>⚠️ <strong>Importante:</strong> Se te pedirá cambiar tu contraseña la primera vez que inicies sesión.</p>
-    
-    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Ingresar a EventsControl</a></p>
-    
-    <p style="font-size: 12px; color: #6b7280;">Si el botón no funciona, copia y pega este enlace: {login_url}</p>
-    """
-
-    return await send_email(
-        to_email,
-        f"Welcome to EventsControl - Your Account",
-        f"Bienvenido a EventsControl - Tu Cuenta",
-        html_en,
-        html_es,
+    return await _send_template_email_inferred_company(
+        template_code="WELCOME_USER",
+        to_email=to_email,
+        company_name=company_name,
+        variables={
+            "user_name": user_name,
+            "employee_name": user_name,
+            "username": username,
+            "password": password,
+            "company_name": company_name,
+            "login_url": login_url,
+        },
     )
 
 
@@ -691,40 +655,14 @@ async def send_existing_user_new_company_email(
     company_name: str,
     login_url: str,
 ) -> bool:
-    """Send email to existing user when associated to a new company."""
-
-    html_en = f"""
-    <h2>You've Been Added to a New Company, {user_name}!</h2>
-    <p>You have been associated with <strong>{company_name}</strong> on EventsControl.</p>
-    
-    <p>You can log in using your existing credentials and select <strong>{company_name}</strong> as your company during login.</p>
-    
-    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px; margin: 16px 0;">
-        <p style="margin: 0 0 8px;"><strong>New Company:</strong> {company_name}</p>
-        <p style="margin: 0;">Use your current email/username and password to log in.</p>
-    </div>
-    
-    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Login to EventsControl</a></p>
-    """
-
-    html_es = f"""
-    <h2>¡Has Sido Agregado a una Nueva Empresa, {user_name}!</h2>
-    <p>Has sido asociado a <strong>{company_name}</strong> en EventsControl.</p>
-    
-    <p>Puedes iniciar sesión con tus credenciales actuales y seleccionar <strong>{company_name}</strong> como tu empresa durante el login.</p>
-    
-    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px; margin: 16px 0;">
-        <p style="margin: 0 0 8px;"><strong>Nueva Empresa:</strong> {company_name}</p>
-        <p style="margin: 0;">Usa tu email/usuario y contraseña actuales para ingresar.</p>
-    </div>
-    
-    <p><a href="{login_url}" style="display: inline-block; background: #2db84b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Ingresar a EventsControl</a></p>
-    """
-
-    return await send_email(
-        to_email,
-        f"You've been added to {company_name}",
-        f"Has sido agregado a {company_name}",
-        html_en,
-        html_es,
+    return await _send_template_email_inferred_company(
+        template_code="EXISTING_USER_NEW_COMPANY",
+        to_email=to_email,
+        company_name=company_name,
+        variables={
+            "user_name": user_name,
+            "employee_name": user_name,
+            "company_name": company_name,
+            "login_url": login_url,
+        },
     )
