@@ -520,6 +520,7 @@ async def get_employee_actions(
                 EventJobRole.event_id == row["id"],
                 EventJobRole.job_role_id == row["job_role_id"],
             )
+            .limit(1)
         )
         ejr_row = ejr_q.scalar_one_or_none()
         if ejr_row:
