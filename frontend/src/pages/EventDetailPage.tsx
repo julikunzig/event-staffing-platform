@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useTranslation } from 'react-i18next'
 import { isAdmin, isAdminOrCoord } from '@/lib/auth'
 import { parseErrorMessage } from '@/lib/errorMessages'
-import api from '@/lib/api'
+import api, { resolveFileUrl } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -556,7 +556,7 @@ export default function EventDetailPage() {
                   </p>
                   <div className="space-y-1.5">
                     {documents.map(doc => (
-                      <a key={doc.id} href={doc.url} target="_blank" rel="noopener noreferrer"
+                      <a key={doc.id} href={resolveFileUrl(doc.url)} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-2 text-sm text-teal-700 hover:text-teal-900 hover:underline">
                         <LinkIcon size={13} className="flex-shrink-0" />
                         <span className="truncate">{doc.name}</span>

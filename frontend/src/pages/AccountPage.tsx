@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import api from '@/lib/api'
+import api, { resolveFileUrl } from '@/lib/api'
+import { extractErrorDetail } from '@/lib/errorMessages'
 import { User, FileText, Briefcase, Upload, Trash2, Save, Lock, Globe, Bell, Link as LinkIcon, ChevronDown } from 'lucide-react'
 import PushNotificationToggle from '@/components/PushNotificationToggle'
 import ConfirmDialog from '@/pages/ConfirmDialog'
@@ -61,6 +62,7 @@ export default function AccountPage() {
   const [docType, setDocType]   = useState('other')
   const [docName, setDocName]   = useState('')
   const [docUrl, setDocUrl]     = useState('')
+  const [docFile, setDocFile]   = useState<File | null>(null)
   const [addingDoc, setAddingDoc] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
@@ -102,12 +104,21 @@ export default function AccountPage() {
   }
 
   const handleAddDocument = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!docUrl) return; setSaving(true); clearMsg()
+    e.preventDefault(); if (!docUrl && !docFile) return; setSaving(true); clearMsg()
     try {
-      const res = await api.post('/users/me/documents/url', { doc_type: docType, name: docName || docType, url: docUrl })
+      let res
+      if (docFile) {
+        const form = new FormData()
+        form.append('file', docFile)
+        form.append('doc_type', docType)
+        form.append('name', docName || docFile.name)
+        res = await api.post('/users/me/documents', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      } else {
+        res = await api.post('/users/me/documents/url', { doc_type: docType, name: docName || docType, url: docUrl })
+      }
       setDocuments(prev => [{ ...res.data, created_at: new Date().toISOString() }, ...prev])
-      setDocUrl(''); setDocName(''); setAddingDoc(false)
-    } catch (e: any) { msg(false, e.response?.data?.detail || t('forms.errorAddingDocument')) }
+      setDocUrl(''); setDocName(''); setDocFile(null); setAddingDoc(false)
+    } catch (e: any) { msg(false, extractErrorDetail(e, t('forms.errorAddingDocument'))) }
     finally { setSaving(false) }
   }
 
@@ -260,9 +271,13 @@ export default function AccountPage() {
                     <input value={docName} onChange={e => setDocName(e.target.value)} placeholder="Mi W9 2024" style={fieldStyle} />
                   </div>
                   <div style={{ gridColumn: '1/-1' }}>
-                    <label style={labelStyle}>{t('forms.uploadDocumentUrl')} *</label>
-                    <input value={docUrl} onChange={e => setDocUrl(e.target.value)} placeholder="https://drive.google.com/..." required style={fieldStyle} />
-                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#9ca3af' }}>{t('forms.uploadDocumentUrlHint')}</p>
+                    <label style={labelStyle}>{t('forms.uploadDocumentFile') || 'Archivo'}</label>
+                    <input type="file" onChange={e => setDocFile(e.target.files?.[0] || null)} style={fieldStyle} />
+                  </div>
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <label style={labelStyle}>{t('forms.uploadDocumentUrl')} {docFile ? '' : '*'}</label>
+                    <input value={docUrl} onChange={e => setDocUrl(e.target.value)} placeholder="https://drive.google.com/..." disabled={!!docFile} required={!docFile} style={fieldStyle} />
+                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#9ca3af' }}>{docFile ? (t('forms.uploadDocumentFileHint') || 'Se subirá el archivo seleccionado') : t('forms.uploadDocumentUrlHint')}</p>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -285,7 +300,7 @@ export default function AccountPage() {
                       <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{DOC_TYPES.find(d => d.value === doc.doc_type)?.label || doc.doc_type}</p>
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                      <a href={doc.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: GREEN, fontWeight: 600, textDecoration: 'none' }}>{t('forms.viewDocument')}</a>
+                      <a href={resolveFileUrl(doc.url)} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: GREEN, fontWeight: 600, textDecoration: 'none' }}>{t('forms.viewDocument')}</a>
                       <button onClick={() => handleDeleteDoc(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={14} /></button>
                     </div>
                   </div>

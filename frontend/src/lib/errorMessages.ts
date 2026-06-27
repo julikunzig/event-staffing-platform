@@ -18,3 +18,17 @@ export function parseErrorMessage(detail: string): string {
   // Si no tiene el separador, devolverlo tal cual
   return detail
 }
+
+/**
+ * Extrae un string seguro de un error de axios. El `detail` de FastAPI puede
+ * ser un string normal o, en errores de validación (422), un array de
+ * objetos {type, loc, msg, input} — eso no es renderizable directo en JSX.
+ */
+export function extractErrorDetail(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string' && detail) return parseErrorMessage(detail)
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map((d) => (typeof d === 'string' ? d : d?.msg)).filter(Boolean).join(', ') || fallback
+  }
+  return fallback
+}

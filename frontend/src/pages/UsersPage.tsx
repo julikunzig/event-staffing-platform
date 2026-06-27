@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import api from '@/lib/api'
+import api, { resolveFileUrl } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { Input } from '@/components/ui/input'
 import { Search, UserPlus, Link2, ChevronLeft, ChevronRight, Pencil, X, Check, Users, Eye } from 'lucide-react'
@@ -512,7 +512,7 @@ export default function UsersPage() {
                 <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Documentos</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {viewProfile.documents.map((d: any) => (
-                    <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
+                    <a key={d.id} href={resolveFileUrl(d.url)} target="_blank" rel="noopener noreferrer"
                       style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb', textDecoration: 'none', fontSize: '12px', color: '#374151' }}>
                       <span>📎</span>
                       <span style={{ flex: 1 }}>{d.name}</span>

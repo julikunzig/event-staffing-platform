@@ -51,6 +51,9 @@ build/
 # Allow frontend/src/lib (overrides generic lib/ rule above)
 !frontend/src/lib/
 
+# Uploaded files (local storage backend)
+backend/uploads/
+
 # Database
 *.db
 *.sqlite

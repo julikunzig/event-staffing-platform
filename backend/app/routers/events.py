@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from pydantic import BaseModel, field_validator
 from decimal import Decimal
 from typing import Annotated
 from datetime import date, time, datetime
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.auth import require_role, get_current_user
 from app.models import Event, EventJobRole, JobRole, EventAssignment, User, EmployeeJobRole
+from app.services.storage import get_storage, is_local_key, resolve_document_url
 
 router = APIRouter(prefix="/events", tags=["events"])
 AdminDep = Annotated[dict, Depends(require_role("super_admin", "admin"))]
@@ -1269,7 +1271,7 @@ async def get_event_documents(
         EventDocumentOut(
             id=d.id,
             name=d.name,
-            url=d.url,
+            url=resolve_document_url(d.url),
             created_at=d.created_at.isoformat(),
         )
         for d in docs
@@ -1292,16 +1294,56 @@ async def add_event_document(
     if not event or event.company_id != company_id:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
 
+    name = body.name.strip()
+    url = body.url.strip()
+    if not name or not url:
+        raise HTTPException(status_code=400, detail="Nombre y URL del documento son requeridos")
+
     doc = EventDocument(
         event_id=event_id,
-        name=body.name.strip(),
-        url=body.url.strip(),
+        name=name,
+        url=url,
         uploaded_by=user_id,
     )
     db.add(doc)
     await db.flush()
     await db.refresh(doc)
-    return EventDocumentOut(id=doc.id, name=doc.name, url=doc.url, created_at=doc.created_at.isoformat())
+    return EventDocumentOut(id=doc.id, name=doc.name, url=resolve_document_url(doc.url), created_at=doc.created_at.isoformat())
+
+
+@router.post("/{event_id}/documents/upload", response_model=EventDocumentOut, status_code=201)
+async def upload_event_document(
+    event_id: int,
+    current_user: AdminDep,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Upload a file and attach it to an event (admin only). Saved via the
+    configured storage backend (disk today; S3/Drive later, same endpoint)."""
+    from app.models import EventDocument
+    company_id = current_user["company_id"]
+    user_id = int(current_user["sub"])
+
+    event = await db.get(Event, event_id)
+    if not event or event.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    content = await file.read()
+    if len(content) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Archivo demasiado grande")
+
+    key = await get_storage().save(content, file.filename or "documento", folder=f"events/{event_id}")
+
+    doc = EventDocument(
+        event_id=event_id,
+        name=file.filename or "Documento",
+        url=key,
+        uploaded_by=user_id,
+    )
+    db.add(doc)
+    await db.flush()
+    await db.refresh(doc)
+    return EventDocumentOut(id=doc.id, name=doc.name, url=resolve_document_url(doc.url), created_at=doc.created_at.isoformat())
 
 
 @router.delete("/{event_id}/documents/{document_id}", status_code=204)
@@ -1323,5 +1365,7 @@ async def delete_event_document(
     if not doc or doc.event_id != event_id:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
 
+    if is_local_key(doc.url):
+        get_storage().delete(doc.url)
     await db.delete(doc)
     await db.flush()

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import api from '@/lib/api'
+import api, { resolveFileUrl } from '@/lib/api'
+import { extractErrorDetail } from '@/lib/errorMessages'
 import { Input } from '@/components/ui/input'
 import { X, Plus, Trash2, FileText, Info, Users, Link as LinkIcon, Save, RefreshCw, ChevronDown } from 'lucide-react'
 import ConfirmDialog from '@/pages/ConfirmDialog'
@@ -88,6 +89,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
   const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([])
   const [docName, setDocName]       = useState('')
   const [docUrl, setDocUrl]         = useState('')
+  const [docFile, setDocFile]       = useState<File | null>(null)
   const [addingDoc, setAddingDoc]   = useState(false)
 
   // ── State ──
@@ -194,12 +196,19 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
   const removePendingDoc = (i: number) => setPendingDocs(pendingDocs.filter((_, idx) => idx !== i))
 
   const handleAddDocument = async () => {
-    if (!docName.trim() || !docUrl.trim()) return
+    if (!docFile && (!docName.trim() || !docUrl.trim())) return
     setAddingDoc(true); setError('')
     try {
-      const res = await api.post<EventDocument>(`/events/${eventId}/documents`, { name: docName.trim(), url: docUrl.trim() })
-      setDocuments(prev => [...prev, res.data]); setDocName(''); setDocUrl('')
-    } catch (err: any) { setError(err.response?.data?.detail || t('common.error')) }
+      let res
+      if (docFile) {
+        const form = new FormData()
+        form.append('file', docFile)
+        res = await api.post<EventDocument>(`/events/${eventId}/documents/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      } else {
+        res = await api.post<EventDocument>(`/events/${eventId}/documents`, { name: docName.trim(), url: docUrl.trim() })
+      }
+      setDocuments(prev => [...prev, res.data]); setDocName(''); setDocUrl(''); setDocFile(null)
+    } catch (err: any) { setError(extractErrorDetail(err, t('common.error'))) }
     finally { setAddingDoc(false) }
   }
 
@@ -635,16 +644,21 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                   <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>{t('events.documentsDesc')}</p>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px', background: '#f9fafb', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
-                    <FieldGroup label={`${t('events.documentName')} *`}>
-                      <input style={fieldStyle} value={docName} onChange={e => setDocName(e.target.value)} placeholder="Contrato, Mapa del venue..." />
+                    {mode === 'edit' && (
+                      <FieldGroup label={t('events.documentFile')}>
+                        <input type="file" style={fieldStyle} onChange={e => setDocFile(e.target.files?.[0] || null)} />
+                      </FieldGroup>
+                    )}
+                    <FieldGroup label={`${t('events.documentName')} ${docFile ? '' : '*'}`}>
+                      <input style={fieldStyle} value={docName} onChange={e => setDocName(e.target.value)} disabled={!!docFile} placeholder="Contrato, Mapa del venue..." />
                     </FieldGroup>
-                    <FieldGroup label={`${t('events.documentUrl')} *`} hint={t('events.documentUrlHint')}>
-                      <input type="url" style={fieldStyle} value={docUrl} onChange={e => setDocUrl(e.target.value)} placeholder="https://drive.google.com/..." />
+                    <FieldGroup label={`${t('events.documentUrl')} ${docFile ? '' : '*'}`} hint={docFile ? t('events.documentFileHint') : t('events.documentUrlHint')}>
+                      <input type="url" style={fieldStyle} value={docUrl} onChange={e => setDocUrl(e.target.value)} disabled={!!docFile} placeholder="https://drive.google.com/..." />
                     </FieldGroup>
                     <button type="button"
                       onClick={mode === 'create' ? addPendingDoc : handleAddDocument}
-                      disabled={!docName.trim() || !docUrl.trim() || addingDoc}
-                      style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 14px', borderRadius: '8px', border: 'none', background: GREEN, color: '#fff', fontSize: '12px', fontWeight: 600, cursor: !docName.trim() || !docUrl.trim() ? 'not-allowed' : 'pointer', opacity: !docName.trim() || !docUrl.trim() ? 0.5 : 1, width: 'fit-content' }}>
+                      disabled={(!docFile && (!docName.trim() || !docUrl.trim())) || addingDoc}
+                      style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 14px', borderRadius: '8px', border: 'none', background: GREEN, color: '#fff', fontSize: '12px', fontWeight: 600, cursor: (!docFile && (!docName.trim() || !docUrl.trim())) ? 'not-allowed' : 'pointer', opacity: (!docFile && (!docName.trim() || !docUrl.trim())) ? 0.5 : 1, width: 'fit-content' }}>
                       {addingDoc ? <RefreshCw size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Plus size={13} />}
                       {t('events.addDocument')}
                     </button>
@@ -677,7 +691,7 @@ export default function EventFormModal({ mode, eventId, onClose, onSuccess }: Pr
                         <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.url}</p>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
-                        <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                        <a href={resolveFileUrl(doc.url)} target="_blank" rel="noopener noreferrer"
                           style={{ fontSize: '12px', color: GREEN, fontWeight: 600, textDecoration: 'none' }}>{t('events.viewDocument')}</a>
                         <button type="button" onClick={() => handleDeleteDocument(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}>
                           <Trash2 size={14} />

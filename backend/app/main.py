@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
@@ -113,6 +115,13 @@ app.add_middleware(
 )
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+app.mount(
+    settings.UPLOAD_PUBLIC_PREFIX,
+    StaticFiles(directory=settings.UPLOAD_DIR),
+    name="uploads",
+)
 
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(companies.router, prefix=settings.API_PREFIX)

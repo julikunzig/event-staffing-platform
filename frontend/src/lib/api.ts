@@ -10,6 +10,17 @@ const api = axios.create({
   baseURL: API_URL,
 })
 
+// Origen del backend (sin el prefijo /api/v1), usado para resolver URLs de
+// archivos servidos localmente (ej: /uploads/...). Si el backend migra a
+// S3/Drive, las URLs ya vendrán absolutas y esta función las deja intactas.
+const API_ORIGIN = API_URL.replace(/\/api\/v1\/?$/, '')
+
+export const resolveFileUrl = (url: string): string => {
+  if (!url) return url
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url)) return url
+  return `${API_ORIGIN}${url}`
+}
+
 // Convertir fechas de formato mm/dd/yyyy o dd/mm/yyyy de vuelta a yyyy-mm-dd para el backend
 const convertDateToISO = (date: string, lang: string): string => {
   if (!date) return date
@@ -39,6 +50,11 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`
   
   // Convertir fechas en el request de vuelta a formato ISO para el backend
+  // (FormData —subidas de archivo— se deja intacta: no es un objeto plano y
+  // este recorrido la destruiría, rompiendo el envío del archivo)
+  if (config.data && typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    return config
+  }
   if (config.data) {
     const lang = localStorage.getItem('lang') || 'es'
     const convertDatesInRequest = (obj: any): any => {

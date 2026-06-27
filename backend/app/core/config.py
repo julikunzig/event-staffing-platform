@@ -45,5 +45,12 @@ class Settings(BaseSettings):
     # Rate limiting
     AUTH_RATE_LIMIT: str = "60/minute"
 
+    # File storage (uploaded documents). "local" today; swap to "s3" later
+    # by adding a backend in app/services/storage.py and changing this value.
+    STORAGE_BACKEND: Literal["local"] = "local"
+    UPLOAD_DIR: str = "uploads"
+    UPLOAD_PUBLIC_PREFIX: str = "/uploads"
+    MAX_UPLOAD_SIZE_MB: int = 10
+
 
 settings = Settings()

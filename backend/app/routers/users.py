@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
 from typing import Annotated
 import bcrypt
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.auth import require_role, get_current_user
 from app.models import User, UserCompanyMembership, Profile
+from app.services.storage import get_storage, is_local_key, resolve_document_url
 
 router = APIRouter(prefix="/users", tags=["users"])
 AdminDep = Annotated[dict, Depends(require_role("super_admin", "admin"))]
@@ -437,7 +439,7 @@ async def get_my_documents(current_user: AnyAuthDep, db: AsyncSession = Depends(
         select(UserDocument).where(UserDocument.user_id == user_id).order_by(UserDocument.created_at.desc())
     )
     docs = result.scalars().all()
-    return [DocumentOut(id=d.id, doc_type=d.doc_type, name=d.name, url=d.url,
+    return [DocumentOut(id=d.id, doc_type=d.doc_type, name=d.name, url=resolve_document_url(d.url),
                         created_at=d.created_at.isoformat()) for d in docs]
 
 
@@ -445,12 +447,26 @@ async def get_my_documents(current_user: AnyAuthDep, db: AsyncSession = Depends(
 async def upload_document(
     current_user: AnyAuthDep,
     db: AsyncSession = Depends(get_db),
-    doc_type: str = "other",
-    name: str = "Documento",
-    file: bytes = b"",
+    doc_type: str = Form("other"),
+    name: str = Form("Documento"),
+    file: UploadFile = File(...),
 ):
-    """Endpoint placeholder — en producción usar S3/Cloudinary. Por ahora acepta URL directa."""
-    raise HTTPException(status_code=501, detail="Use POST /me/documents/url para subir por URL")
+    """Sube un archivo y lo guarda mediante el storage backend configurado
+    (disco hoy; S3/Drive en el futuro sin cambiar este endpoint)."""
+    from app.models import UserDocument
+
+    content = await file.read()
+    if len(content) > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Archivo demasiado grande")
+
+    user_id = int(current_user["sub"])
+    key = await get_storage().save(content, file.filename or "documento", folder=f"users/{user_id}")
+
+    doc = UserDocument(user_id=user_id, doc_type=doc_type, name=name, url=key)
+    db.add(doc)
+    await db.flush()
+    await db.refresh(doc)
+    return {"id": doc.id, "doc_type": doc.doc_type, "name": doc.name, "url": resolve_document_url(doc.url)}
 
 
 @router.post("/me/documents/url", status_code=201)
@@ -460,16 +476,19 @@ async def add_document_url(
     db: AsyncSession = Depends(get_db),
 ):
     from app.models import UserDocument
+    url = body.get("url", "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="La URL del documento es requerida")
     user_id = int(current_user["sub"])
     doc = UserDocument(
         user_id=user_id,
         doc_type=body.get("doc_type", "other"),
         name=body.get("name", "Documento"),
-        url=body.get("url", ""),
+        url=url,
     )
     db.add(doc)
     await db.flush()
-    return {"id": doc.id, "doc_type": doc.doc_type, "name": doc.name, "url": doc.url}
+    return {"id": doc.id, "doc_type": doc.doc_type, "name": doc.name, "url": resolve_document_url(doc.url)}
 
 
 @router.delete("/me/documents/{doc_id}", status_code=204)
@@ -482,6 +501,8 @@ async def delete_document(doc_id: int, current_user: AnyAuthDep, db: AsyncSessio
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+    if is_local_key(doc.url):
+        get_storage().delete(doc.url)
     await db.delete(doc)
 
 
@@ -606,7 +627,7 @@ async def get_user_full_profile(
         select(UserDocument).where(UserDocument.user_id == user_id).order_by(UserDocument.created_at.desc())
     )
     documents = [
-        {"id": d.id, "name": d.name, "url": d.url, "doc_type": d.doc_type}
+        {"id": d.id, "name": d.name, "url": resolve_document_url(d.url), "doc_type": d.doc_type}
         for d in docs_result.scalars().all()
     ]
 

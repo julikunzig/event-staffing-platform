@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import api from '@/lib/api'
+import api, { resolveFileUrl } from '@/lib/api'
+import { extractErrorDetail } from '@/lib/errorMessages'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -72,6 +73,7 @@ export default function EventEditPage() {
   const [documents, setDocuments] = useState<EventDocument[]>([])
   const [docName, setDocName] = useState('')
   const [docUrl, setDocUrl] = useState('')
+  const [docFile, setDocFile] = useState<File | null>(null)
 
   const loadAll = async () => {
     try {
@@ -159,12 +161,20 @@ export default function EventEditPage() {
 
   // Documents
   const handleAddDocument = async () => {
-    if (!docName.trim() || !docUrl.trim()) return
+    if (!docName.trim() && !docFile) return
+    if (!docFile && !docUrl.trim()) return
     setAddingDoc(true); setError('')
     try {
-      const res = await api.post<EventDocument>(`/events/${id}/documents`, { name: docName.trim(), url: docUrl.trim() })
-      setDocuments(prev => [...prev, res.data]); setDocName(''); setDocUrl('')
-    } catch (err: any) { setError(err.response?.data?.detail || t('common.error')) }
+      let res
+      if (docFile) {
+        const form = new FormData()
+        form.append('file', docFile)
+        res = await api.post<EventDocument>(`/events/${id}/documents/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      } else {
+        res = await api.post<EventDocument>(`/events/${id}/documents`, { name: docName.trim(), url: docUrl.trim() })
+      }
+      setDocuments(prev => [...prev, res.data]); setDocName(''); setDocUrl(''); setDocFile(null)
+    } catch (err: any) { setError(extractErrorDetail(err, t('common.error'))) }
     finally { setAddingDoc(false) }
   }
 
@@ -418,18 +428,22 @@ export default function EventEditPage() {
             <p className="text-sm text-slate-600">{t('events.documentsDesc')}</p>
             <div className="space-y-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
               <div className="space-y-1">
-                <Label>{t('events.documentName')} *</Label>
-                <Input value={docName} onChange={e => setDocName(e.target.value)}
+                <Label>{t('events.documentFile') || 'Archivo'}</Label>
+                <Input type="file" onChange={e => setDocFile(e.target.files?.[0] || null)} />
+              </div>
+              <div className="space-y-1">
+                <Label>{t('events.documentName')} {docFile ? '' : '*'}</Label>
+                <Input value={docName} onChange={e => setDocName(e.target.value)} disabled={!!docFile}
                   placeholder="Contrato, Mapa del venue..." />
               </div>
               <div className="space-y-1">
-                <Label>{t('events.documentUrl')} *</Label>
-                <Input value={docUrl} onChange={e => setDocUrl(e.target.value)}
+                <Label>{t('events.documentUrl')} {docFile ? '' : '*'}</Label>
+                <Input value={docUrl} onChange={e => setDocUrl(e.target.value)} disabled={!!docFile}
                   placeholder="https://drive.google.com/..." type="url" />
-                <p className="text-xs text-slate-400">{t('events.documentUrlHint')}</p>
+                <p className="text-xs text-slate-400">{docFile ? (t('events.documentFileHint') || 'Se subirá el archivo seleccionado') : t('events.documentUrlHint')}</p>
               </div>
               <Button type="button" size="sm" onClick={handleAddDocument}
-                disabled={addingDoc || !docName.trim() || !docUrl.trim()} className="gap-1">
+                disabled={addingDoc || (!docFile && (!docName.trim() || !docUrl.trim()))} className="gap-1">
                 {addingDoc ? <RefreshCw size={13} className="animate-spin" /> : <Plus size={13} />}
                 {t('events.addDocument')}
               </Button>
@@ -447,7 +461,7 @@ export default function EventEditPage() {
                       <p className="text-xs text-slate-400 truncate">{doc.url}</p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                      <a href={resolveFileUrl(doc.url)} target="_blank" rel="noopener noreferrer"
                         className="text-xs text-teal-600 hover:underline font-medium">
                         {t('events.viewDocument')}
                       </a>
