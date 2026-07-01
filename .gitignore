@@ -54,6 +54,10 @@ build/
 # Uploaded files (local storage backend)
 backend/uploads/
 
+# Production-only files present on server but not tracked in repo
+frontend/Dockerfile
+frontend/nginx.conf
+
 # Database
 *.db
 *.sqlite
