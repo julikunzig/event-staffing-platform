@@ -346,7 +346,13 @@
     "saved": "Changes saved successfully",
     "error": "Error saving changes",
     "loading": "Loading configuration...",
-    "onlyAdminCanEdit": "Only administrators can edit company settings"
+    "onlyAdminCanEdit": "Only administrators can edit company settings",
+    "whatsappTitle": "WhatsApp Chatbot",
+    "whatsappActive": "Active number:",
+    "whatsappNumber": "WhatsApp Number (international format)",
+    "whatsappHint": "Number approved in Twilio for WhatsApp Business. E.g.: +15551234567",
+    "whatsappEnabled": "Chatbot active",
+    "whatsappEnabledDesc": "The webhook will respond to messages for this number"
   },
   "validation": {
     "cannotApplyInsufficientHours": "You cannot apply to this event. You have another event the same day with a difference of {hours} hours, but you need at least {required} hours difference.",

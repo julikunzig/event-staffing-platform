@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/context/AuthContext'
 import { isAdmin } from '@/lib/auth'
 import api from '@/lib/api'
-import { Save, Settings, Building2, AlertCircle } from 'lucide-react'
+import { Save, Settings, Building2, AlertCircle, MessageCircle, CheckCircle2, Trash2 } from 'lucide-react'
 
 const GREEN      = '#2db84b'
 const GREEN_DARK = '#1e9038'
@@ -19,6 +19,7 @@ const labelStyle: React.CSSProperties = {
 }
 
 interface Company { id: number; name: string; email: string | null; phone: string | null }
+interface WhatsAppSettings { id: number; company_id: number; whatsapp_number: string; is_active: boolean }
 interface WeeklyConfig { id: number; company_id: number; weekly_hours_limit: number; min_shift_hours: number; shift_start_minutes: number; horas_entre_eventos: number; admin_can_clock_in_all: boolean; days_to_reject_event: number; geolocation_enabled: boolean; overtime_multiplier: number; week_start_day: string; week_end_day: string }
 
 function Panel({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -56,14 +57,29 @@ export default function CompanySettingsPage() {
   const [weekStartDay, setWeekStartDay] = useState('monday')
   const [weekEndDay, setWeekEndDay] = useState('sunday')
 
+  // WhatsApp state
+  const [waSettings, setWaSettings] = useState<WhatsAppSettings | null | undefined>(undefined)
+  const [waNumber, setWaNumber] = useState('')
+  const [waActive, setWaActive] = useState(true)
+  const [waSaving, setWaSaving] = useState(false)
+  const [waDeleting, setWaDeleting] = useState(false)
+
   useEffect(() => {
     const load = async () => {
       try {
-        if (!user?.company_id) return
-        const [compRes, configRes] = await Promise.all([
+        if (user?.company_id == null) return
+        const [compRes, configRes, waRes] = await Promise.all([
           api.get<Company>(`/companies/${user.company_id}`),
           api.get<WeeklyConfig>(`/companies/${user.company_id}/weekly-config`).catch(() => null),
+          api.get<WhatsAppSettings | null>(`/companies/${user.company_id}/whatsapp-settings`).catch(() => null),
         ])
+        if (waRes?.data) {
+          setWaSettings(waRes.data)
+          setWaNumber(waRes.data.whatsapp_number.replace('whatsapp:', ''))
+          setWaActive(waRes.data.is_active)
+        } else {
+          setWaSettings(null)
+        }
         setCompany(compRes.data); setCompanyName(compRes.data.name)
         setCompanyEmail(compRes.data.email || ''); setCompanyPhone(compRes.data.phone || '')
         if (configRes) {
@@ -109,6 +125,31 @@ export default function CompanySettingsPage() {
     finally { setSaving(false) }
   }
 
+  const handleSaveWhatsApp = async (e: React.FormEvent) => {
+    e.preventDefault(); setWaSaving(true); setError(''); setSuccess('')
+    try {
+      const res = await api.put<WhatsAppSettings>(
+        `/companies/${user?.company_id}/whatsapp-settings`,
+        { whatsapp_number: waNumber, is_active: waActive }
+      )
+      setWaSettings(res.data)
+      setWaNumber(res.data.whatsapp_number.replace('whatsapp:', ''))
+      setSuccess(t('companySettings.saved'))
+    } catch (e: any) { setError(e.response?.data?.detail || t('companySettings.error')) }
+    finally { setWaSaving(false) }
+  }
+
+  const handleDeleteWhatsApp = async () => {
+    if (!window.confirm('¿Eliminar configuración de WhatsApp?')) return
+    setWaDeleting(true); setError(''); setSuccess('')
+    try {
+      await api.delete(`/companies/${user?.company_id}/whatsapp-settings`)
+      setWaSettings(null); setWaNumber(''); setWaActive(true)
+      setSuccess(t('companySettings.saved'))
+    } catch (e: any) { setError(e.response?.data?.detail || t('companySettings.error')) }
+    finally { setWaDeleting(false) }
+  }
+
   if (!isAdmin(user)) return (
     <div style={{ maxWidth: '600px' }}>
       <div style={{ display: 'flex', gap: '10px', padding: '14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px' }}>
@@ -148,6 +189,52 @@ export default function CompanySettingsPage() {
           <button type="submit" disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '9px', border: 'none', background: `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: "'Poppins',sans-serif" }}>
             <Save size={14} />{saving ? t('companySettings.saving') : t('companySettings.saveChanges')}
           </button>
+        </form>
+      </Panel>
+
+      {/* WhatsApp Panel */}
+      <Panel icon={<MessageCircle size={15} color="#25d366" />} title={t('companySettings.whatsappTitle', { defaultValue: 'WhatsApp Chatbot' })}>
+        {waSettings && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
+            <CheckCircle2 size={14} color="#16a34a" />
+            <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 600 }}>
+              {t('companySettings.whatsappActive', { defaultValue: 'Número activo:' })} {waSettings.whatsapp_number}
+            </span>
+          </div>
+        )}
+        <form onSubmit={handleSaveWhatsApp}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+            <div>
+              <label style={labelStyle}>{t('companySettings.whatsappNumber', { defaultValue: 'Número de WhatsApp (formato internacional)' })}</label>
+              <input
+                value={waNumber}
+                onChange={e => setWaNumber(e.target.value)}
+                placeholder="+15551234567"
+                required
+                style={fieldStyle}
+              />
+              <p style={{ margin: '5px 0 0', fontSize: '11px', color: '#9ca3af' }}>
+                {t('companySettings.whatsappHint', { defaultValue: 'Número aprobado en Twilio para WhatsApp Business. Ej: +15551234567' })}
+              </p>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+              <input type="checkbox" checked={waActive} onChange={e => setWaActive(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: '#25d366' }} />
+              <div>
+                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.whatsappEnabled', { defaultValue: 'Chatbot activo' })}</p>
+                <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.whatsappEnabledDesc', { defaultValue: 'El webhook responderá mensajes para este número' })}</p>
+              </div>
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button type="submit" disabled={waSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '9px', border: 'none', background: '#25d366', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: waSaving ? 'not-allowed' : 'pointer', opacity: waSaving ? 0.7 : 1, fontFamily: "'Poppins',sans-serif" }}>
+              <Save size={14} />{waSaving ? t('companySettings.saving') : t('companySettings.saveChanges')}
+            </button>
+            {waSettings && (
+              <button type="button" onClick={handleDeleteWhatsApp} disabled={waDeleting} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', borderRadius: '9px', border: '1.5px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '13px', fontWeight: 600, cursor: waDeleting ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                <Trash2 size={14} />{t('common.delete')}
+              </button>
+            )}
+          </div>
         </form>
       </Panel>
 

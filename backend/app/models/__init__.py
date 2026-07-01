@@ -19,6 +19,7 @@ from app.models.push_subscription import PushSubscription
 from app.models.payroll import PayrollSettlement, PayrollSettlementItem
 from app.models.payment import Payment, PaymentEvent, PaymentItem
 from app.models.company_email_settings import CompanyEmailSettings
+from app.models.company_whatsapp_settings import CompanyWhatsAppSettings
 from app.models.email_template import EmailTemplate
 from app.models.email_delivery_log import EmailDeliveryLog
 from app.models.email_queue import EmailQueue
@@ -50,6 +51,7 @@ __all__ = [
     "PaymentEvent",
     "PaymentItem",
     "CompanyEmailSettings",
+    "CompanyWhatsAppSettings",
     "EmailTemplate",
     "EmailDeliveryLog",
 ]

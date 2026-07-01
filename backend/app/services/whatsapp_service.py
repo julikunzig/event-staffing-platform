@@ -12,16 +12,23 @@ TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+1415523
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 
-def send_whatsapp(to: str, body: str) -> bool:
-    """Send a WhatsApp message via Twilio."""
+def send_whatsapp(to: str, body: str, from_number: str | None = None) -> bool:
+    """Send a WhatsApp message via Twilio.
+
+    from_number: número de la empresa (whatsapp:+15551234567).
+    Si no se pasa, usa TWILIO_WHATSAPP_FROM del entorno (fallback sandbox).
+    """
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
         print(f"[WhatsApp] Twilio not configured. Would send to {to}: {body}")
         return False
     try:
         from twilio.rest import Client
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        from_= from_number or TWILIO_WHATSAPP_FROM
+        if not from_.startswith("whatsapp:"):
+            from_ = f"whatsapp:{from_}"
         client.messages.create(
-            from_=TWILIO_WHATSAPP_FROM,
+            from_=from_,
             to=f"whatsapp:{to}" if not to.startswith("whatsapp:") else to,
             body=body,
         )

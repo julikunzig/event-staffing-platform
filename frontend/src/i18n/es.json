@@ -346,7 +346,13 @@
     "saved": "Cambios guardados correctamente",
     "error": "Error al guardar los cambios",
     "loading": "Cargando configuración...",
-    "onlyAdminCanEdit": "Solo administradores pueden editar la configuración de la empresa"
+    "onlyAdminCanEdit": "Solo administradores pueden editar la configuración de la empresa",
+    "whatsappTitle": "WhatsApp Chatbot",
+    "whatsappActive": "Número activo:",
+    "whatsappNumber": "Número de WhatsApp (formato internacional)",
+    "whatsappHint": "Número aprobado en Twilio para WhatsApp Business. Ej: +15551234567",
+    "whatsappEnabled": "Chatbot activo",
+    "whatsappEnabledDesc": "El webhook responderá mensajes para este número"
   },
   "validation": {
     "cannotApplyInsufficientHours": "No puedes aplicar a este evento. Tienes otro evento el mismo día con una diferencia de {hours} horas, pero necesitas al menos {required} horas de diferencia.",
