@@ -250,7 +250,7 @@ function CalendarView({ events, myAssignments, onEventClick, statusMap, assignMa
                         return (
                           <button key={ev.id}
                             onClick={e => { e.stopPropagation(); onEventClick(ev.id) }}
-                            style={{ width: '100%', textAlign: 'left', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: 500, truncate: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', background: s?.bg || '#f3f4f6', color: s?.color || '#6b7280', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            style={{ width: '100%', textAlign: 'left', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: 500, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', background: s?.bg || '#f3f4f6', color: s?.color || '#6b7280', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
                             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: s?.dot || '#9ca3af', flexShrink: 0 }} />
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.name}</span>
                           </button>

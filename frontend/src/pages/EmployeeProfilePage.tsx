@@ -164,7 +164,7 @@ export default function EmployeeProfilePage() {
       <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
         {[{ key: 'all', label: t('common.all')||'Todos' }, { key: 'active', label: t('profile.activeShifts')||'Activos' }, { key: 'completed', label: t('profile.completedShifts')||'Completados' }].map(f => (
           <button key={f.key} onClick={() => { setShiftFilter(f.key as any); setCurrentPage(1) }}
-            style={{ padding: '6px 14px', borderRadius: '999px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600, fontFamily: "'Poppins',sans-serif", background: shiftFilter === f.key ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#fff', color: shiftFilter === f.key ? '#fff' : '#374151', border: shiftFilter === f.key ? 'none' : '1.5px solid #e5e7eb', boxShadow: shiftFilter === f.key ? '0 2px 8px rgba(45,184,75,0.25)' : 'none' }}>
+            style={{ padding: '6px 14px', borderRadius: '999px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, fontFamily: "'Poppins',sans-serif", background: shiftFilter === f.key ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#fff', color: shiftFilter === f.key ? '#fff' : '#374151', border: shiftFilter === f.key ? 'none' : '1.5px solid #e5e7eb', boxShadow: shiftFilter === f.key ? '0 2px 8px rgba(45,184,75,0.25)' : 'none' }}>
             {f.label}
           </button>
         ))}

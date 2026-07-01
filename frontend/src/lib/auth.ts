@@ -4,6 +4,7 @@ export interface AuthUser {
   role: 'super_admin' | 'admin' | 'coordinator' | 'employee'
   exp: number
   name?: string
+  company_name?: string
   must_change_password?: boolean
 }
 
@@ -16,6 +17,7 @@ export function parseToken(token: string): AuthUser | null {
       role: payload.role,
       exp: payload.exp,
       name: payload.name || '',
+      company_name: payload.company_name || '',
       must_change_password: payload.must_change_password || false,
     }
   } catch {
