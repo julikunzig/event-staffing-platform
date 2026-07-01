@@ -25,6 +25,7 @@ import PayrollPage from '@/pages/PayrollPage'
 import PaymentsPage from '@/pages/PaymentsPage'
 import EmployeeDashboardPage from '@/pages/EmployeeDashboardPage'
 import EmailSettingsPage from '@/pages/EmailSettingsPage'
+import SchedulerPage from '@/pages/SchedulerPage'
 
 const queryClient = new QueryClient()
 
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/companies" element={<ProtectedRoute roles={['super_admin']}><CompaniesPage /></ProtectedRoute>} />
             <Route path="/company-settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><CompanySettingsPage /></ProtectedRoute>} />
             <Route path="/email-settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><EmailSettingsPage /></ProtectedRoute>} />
+            <Route path="/scheduler" element={<ProtectedRoute roles={['admin', 'super_admin']}><SchedulerPage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><EmployeeProfilePage /></ProtectedRoute>} />
             <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
             <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />

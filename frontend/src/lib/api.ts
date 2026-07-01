@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // Usar la URL de la API desde variables de entorno
 // Configuración estándar: http://10.0.0.13:8000/api/v1
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+const API_URL = import.meta.env.VITE_API_URL || '/api/v1'
 
 console.log('[API] Using API URL:', API_URL)
 

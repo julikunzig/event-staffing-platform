@@ -4,7 +4,7 @@ import { isAdmin, isAdminOrCoord } from '@/lib/auth'
 import {
   CalendarDays, Users, Briefcase, BarChart2, LogOut,
   Home, Building2, KeyRound, UserCircle, Globe,
-  Menu, X, Newspaper, ChevronUp, Settings, HelpCircle, DollarSign, CreditCard, Activity
+  Menu, X, Newspaper, ChevronUp, Settings, HelpCircle, DollarSign, CreditCard, Activity, Clock
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect, useRef } from 'react'
@@ -67,6 +67,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { to: '/reports',          label: t('nav.reports'),   icon: BarChart2,    show: isAdminOrCoord(user) || user?.role === 'employee' },
     { to: '/payroll',          label: t('nav.payroll'),   icon: DollarSign,   show: isAdmin(user) },
     { to: '/payments',         label: t('nav.payments'),  icon: CreditCard,   show: isAdmin(user) },
+    { to: '/scheduler',        label: t('nav.tasks'),     icon: Clock,        show: isAdmin(user) },
   ]
 
   const profileItems = [

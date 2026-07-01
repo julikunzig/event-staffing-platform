@@ -37,6 +37,7 @@ from app.routers import (
     email_templates,
     email_delivery_logs,
     email_queue,
+    scheduler,
 )
 
 
@@ -157,6 +158,7 @@ app.include_router(company_email_settings.router, prefix=settings.API_PREFIX)
 app.include_router(email_templates.router, prefix=settings.API_PREFIX)
 app.include_router(email_delivery_logs.router, prefix=settings.API_PREFIX)
 app.include_router(email_queue.router, prefix=settings.API_PREFIX)
+app.include_router(scheduler.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health")

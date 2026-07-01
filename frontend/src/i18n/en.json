@@ -58,7 +58,8 @@
     "payroll": "Payroll",
     "payments": "Payments",
     "eventClosing": "Event Closing",
-    "employeeDashboard": "My Panel"
+    "employeeDashboard": "My Panel",
+    "tasks": "Tasks"
   },
   "auth": {
     "email": "Email",
@@ -708,5 +709,55 @@
     "errorLoading": "Error loading event summary",
     "errorSaving": "Error saving changes",
     "errorFinishing": "Error finishing the event"
+  },
+  "scheduler": {
+    "title": "Scheduled Tasks",
+    "subtitle": "Manage the system's automatic reminders",
+    "refresh": "Refresh",
+    "active": "active",
+    "inactive": "inactive",
+    "loading": "Loading...",
+    "noJobs": "No active scheduled tasks.",
+    "nextRun": "Next run:",
+    "paused": "PAUSED",
+    "runNow": "Run now",
+    "jobQueued": "Job executed. Emails will be queued in seconds.",
+    "jobError": "Could not execute the job.",
+    "pauseError": "Could not change job status.",
+    "resumed": "Job resumed.",
+    "pausedMsg": "Job paused.",
+    "nextRunPaused": "Paused",
+    "tabTemplate": "Email template",
+    "tabLogs": "Recent sends",
+    "templateSubject": "Subject",
+    "templateBody": "HTML body",
+    "saveTemplate": "Save template",
+    "saving": "Saving...",
+    "templateSaved": "Template saved successfully.",
+    "templateError": "Error saving template.",
+    "templateNotFound": "Template not found for this company.",
+    "sendTest": "Send test",
+    "sendingTest": "Sending...",
+    "testEmail": "Destination email",
+    "testSent": "Test email sent successfully.",
+    "testError": "Error sending test email.",
+    "noSmtp": "No active SMTP configuration for this company.",
+    "logsEmpty": "No sends recorded for this task.",
+    "logsRecipient": "Recipient",
+    "logsDate": "Date",
+    "logsStatus": "Status",
+    "statusSuccess": "Sent",
+    "statusFailed": "Failed",
+    "statusPending": "Pending",
+    "jobs": {
+      "invitation_reminders": {
+        "label": "Invitation reminders",
+        "desc": "Sends an hourly reminder to invited employees who haven't responded yet."
+      },
+      "shift_reminders": {
+        "label": "Shift reminders",
+        "desc": "Sends a daily reminder at 08:00 UTC to employees with a shift the next day."
+      }
+    }
   }
 }

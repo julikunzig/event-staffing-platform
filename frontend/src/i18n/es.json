@@ -58,7 +58,8 @@
     "payroll": "Liquidación",
     "payments": "Pagos",
     "eventClosing": "Cierre de eventos",
-    "employeeDashboard": "Mi Panel"
+    "employeeDashboard": "Mi Panel",
+    "tasks": "Tareas"
   },
   "auth": {
     "email": "Email",
@@ -702,5 +703,55 @@
     "errorLoading": "Error cargando el resumen del evento",
     "errorSaving": "Error guardando los cambios",
     "errorFinishing": "Error finalizando el evento"
+  },
+  "scheduler": {
+    "title": "Tareas Programadas",
+    "subtitle": "Administra los recordatorios automáticos del sistema",
+    "refresh": "Actualizar",
+    "active": "activo",
+    "inactive": "inactivo",
+    "loading": "Cargando...",
+    "noJobs": "No hay tareas programadas activas.",
+    "nextRun": "Próxima ejecución:",
+    "paused": "PAUSADO",
+    "runNow": "Ejecutar ahora",
+    "jobQueued": "Job ejecutado. Los emails se encolarán en segundos.",
+    "jobError": "No se pudo ejecutar el job.",
+    "pauseError": "No se pudo cambiar el estado del job.",
+    "resumed": "Job reanudado.",
+    "pausedMsg": "Job pausado.",
+    "nextRunPaused": "Pausado",
+    "tabTemplate": "Plantilla de correo",
+    "tabLogs": "Últimos envíos",
+    "templateSubject": "Asunto",
+    "templateBody": "Cuerpo HTML",
+    "saveTemplate": "Guardar plantilla",
+    "saving": "Guardando...",
+    "templateSaved": "Plantilla guardada correctamente.",
+    "templateError": "Error al guardar la plantilla.",
+    "templateNotFound": "Plantilla no encontrada para esta empresa.",
+    "sendTest": "Enviar prueba",
+    "sendingTest": "Enviando...",
+    "testEmail": "Email de destino",
+    "testSent": "Correo de prueba enviado correctamente.",
+    "testError": "Error al enviar el correo de prueba.",
+    "noSmtp": "No hay configuración SMTP activa para esta empresa.",
+    "logsEmpty": "Sin envíos registrados para esta tarea.",
+    "logsRecipient": "Destinatario",
+    "logsDate": "Fecha",
+    "logsStatus": "Estado",
+    "statusSuccess": "Enviado",
+    "statusFailed": "Error",
+    "statusPending": "Pendiente",
+    "jobs": {
+      "invitation_reminders": {
+        "label": "Recordatorio de invitaciones",
+        "desc": "Envía recordatorio cada hora a empleados invitados que aún no han respondido."
+      },
+      "shift_reminders": {
+        "label": "Recordatorio de turnos",
+        "desc": "Envía recordatorio diario a las 08:00 UTC a empleados con turno al día siguiente."
+      }
+    }
   }
 }
