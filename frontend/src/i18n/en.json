@@ -347,6 +347,8 @@
     "error": "Error saving changes",
     "loading": "Loading configuration...",
     "onlyAdminCanEdit": "Only administrators can edit company settings",
+    "tabCompany": "Company",
+    "tabParams": "Parameters",
     "whatsappTitle": "WhatsApp Chatbot",
     "whatsappActive": "Active number:",
     "whatsappNumber": "WhatsApp Number (international format)",

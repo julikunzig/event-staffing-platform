@@ -347,6 +347,8 @@
     "error": "Error al guardar los cambios",
     "loading": "Cargando configuración...",
     "onlyAdminCanEdit": "Solo administradores pueden editar la configuración de la empresa",
+    "tabCompany": "Empresa",
+    "tabParams": "Parámetros",
     "whatsappTitle": "WhatsApp Chatbot",
     "whatsappActive": "Número activo:",
     "whatsappNumber": "Número de WhatsApp (formato internacional)",

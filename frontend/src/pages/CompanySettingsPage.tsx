@@ -22,46 +22,52 @@ interface Company { id: number; name: string; email: string | null; phone: strin
 interface WhatsAppSettings { id: number; company_id: number; whatsapp_number: string; is_active: boolean }
 interface WeeklyConfig { id: number; company_id: number; weekly_hours_limit: number; min_shift_hours: number; shift_start_minutes: number; horas_entre_eventos: number; admin_can_clock_in_all: boolean; days_to_reject_event: number; geolocation_enabled: boolean; overtime_multiplier: number; week_start_day: string; week_end_day: string }
 
-function Panel({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', marginBottom: '16px' }}>
-      <div style={{ height: '2px', background: `linear-gradient(90deg,${GREEN_DARK},${GREEN})` }} />
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {icon}<p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#111827' }}>{title}</p>
-      </div>
-      <div style={{ padding: '20px' }}>{children}</div>
-    </div>
-  )
+type Tab = 'empresa' | 'whatsapp' | 'parametros'
+
+const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+const dayLabel = (d: string, t: (k: string) => string) => {
+  const map: Record<string,string> = { monday: t('days.monday') || 'Lunes', tuesday: t('days.tuesday') || 'Martes', wednesday: t('days.wednesday') || 'Miércoles', thursday: t('days.thursday') || 'Jueves', friday: t('days.friday') || 'Viernes', saturday: t('days.saturday') || 'Sábado', sunday: t('days.sunday') || 'Domingo' }
+  return map[d] ?? d
 }
+
+const saveBtn = (loading: boolean, label: string, loadingLabel: string, color = `linear-gradient(135deg,${GREEN_DARK},${GREEN})`): React.CSSProperties => ({
+  display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px',
+  borderRadius: '9px', border: 'none', background: color, color: '#fff',
+  fontSize: '13px', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer',
+  opacity: loading ? 0.7 : 1, fontFamily: "'Poppins',sans-serif",
+})
 
 export default function CompanySettingsPage() {
   const { user } = useAuth()
   const { t } = useTranslation()
+  const [activeTab, setActiveTab] = useState<Tab>('empresa')
+
   const [company, setCompany]   = useState<Company | null>(null)
   const [config, setConfig]     = useState<WeeklyConfig | null>(null)
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
   const [error, setError]       = useState('')
   const [success, setSuccess]   = useState('')
+
   const [companyName, setCompanyName]   = useState('')
   const [companyEmail, setCompanyEmail] = useState('')
   const [companyPhone, setCompanyPhone] = useState('')
-  const [weeklyHours, setWeeklyHours]   = useState('40')
-  const [minHours, setMinHours]         = useState('0')
-  const [minutesBefore, setMinutesBefore] = useState('15')
+
+  const [weeklyHours, setWeeklyHours]         = useState('40')
+  const [minHours, setMinHours]               = useState('0')
+  const [minutesBefore, setMinutesBefore]     = useState('15')
   const [horasEntreEventos, setHorasEntreEventos] = useState('0')
   const [adminCanClockIn, setAdminCanClockIn] = useState(false)
-  const [daysToReject, setDaysToReject] = useState('0')
-  const [geoEnabled, setGeoEnabled] = useState(true)
+  const [daysToReject, setDaysToReject]       = useState('0')
+  const [geoEnabled, setGeoEnabled]           = useState(true)
   const [overtimeMultiplier, setOvertimeMultiplier] = useState('1.50')
-  const [weekStartDay, setWeekStartDay] = useState('monday')
-  const [weekEndDay, setWeekEndDay] = useState('sunday')
+  const [weekStartDay, setWeekStartDay]       = useState('monday')
+  const [weekEndDay, setWeekEndDay]           = useState('sunday')
 
-  // WhatsApp state
   const [waSettings, setWaSettings] = useState<WhatsAppSettings | null | undefined>(undefined)
-  const [waNumber, setWaNumber] = useState('')
-  const [waActive, setWaActive] = useState(true)
-  const [waSaving, setWaSaving] = useState(false)
+  const [waNumber, setWaNumber]     = useState('')
+  const [waActive, setWaActive]     = useState(true)
+  const [waSaving, setWaSaving]     = useState(false)
   const [waDeleting, setWaDeleting] = useState(false)
 
   useEffect(() => {
@@ -161,150 +167,214 @@ export default function CompanySettingsPage() {
 
   if (loading) return <p style={{ color: '#9ca3af', fontSize: '13px' }}>{t('common.loading')}</p>
 
-  return (
-    <div style={{ maxWidth: '640px', fontFamily: "'Poppins',sans-serif" }}>
-      <h2 style={{ margin: '0 0 20px', fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>{t('companySettings.title')}</h2>
+  const tabs: { id: Tab; label: string; icon: React.ReactNode; badge?: React.ReactNode }[] = [
+    {
+      id: 'empresa',
+      label: t('companySettings.tabCompany', { defaultValue: 'Empresa' }),
+      icon: <Building2 size={14} />,
+    },
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp',
+      icon: <MessageCircle size={14} />,
+      badge: waSettings?.is_active
+        ? <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#25d366', display: 'inline-block', marginLeft: '6px' }} />
+        : undefined,
+    },
+    {
+      id: 'parametros',
+      label: t('companySettings.tabParams', { defaultValue: 'Parámetros' }),
+      icon: <Settings size={14} />,
+    },
+  ]
 
+  return (
+    <div style={{ maxWidth: '660px', fontFamily: "'Poppins',sans-serif" }}>
+      <h2 style={{ margin: '0 0 20px', fontSize: '1.4rem', fontWeight: 800, color: '#111827' }}>
+        {t('companySettings.title')}
+      </h2>
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: '4px', background: '#f3f4f6', borderRadius: '10px', padding: '4px', marginBottom: '20px' }}>
+        {tabs.map(tab => {
+          const active = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => { setActiveTab(tab.id); setError(''); setSuccess('') }}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '6px', padding: '8px 12px', borderRadius: '7px', border: 'none',
+                background: active ? '#fff' : 'transparent',
+                color: active ? '#111827' : '#6b7280',
+                fontSize: '12px', fontWeight: active ? 700 : 500,
+                cursor: 'pointer', fontFamily: "'Poppins',sans-serif",
+                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s',
+              }}
+            >
+              <span style={{ color: active ? (tab.id === 'whatsapp' ? '#25d366' : GREEN) : '#9ca3af' }}>
+                {tab.icon}
+              </span>
+              {tab.label}
+              {tab.badge}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Alerts */}
       {error   && <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', fontSize: '13px', marginBottom: '14px' }}>⚠ {error}</div>}
       {success && <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', color: '#15803d', fontSize: '13px', marginBottom: '14px' }}>✓ {success}</div>}
 
-      <Panel icon={<Building2 size={15} color={GREEN} />} title={t('companySettings.companyInfo')}>
-        <form onSubmit={handleSaveCompany}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-            <div>
-              <label style={labelStyle}>{t('companySettings.companyName')} *</label>
-              <input value={companyName} onChange={e => setCompanyName(e.target.value)} required style={fieldStyle} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div>
-                <label style={labelStyle}>{t('companySettings.contactEmail')}</label>
-                <input type="email" value={companyEmail} onChange={e => setCompanyEmail(e.target.value)} placeholder="contact@company.com" style={fieldStyle} />
+      {/* Tab: Empresa */}
+      {activeTab === 'empresa' && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ height: '2px', background: `linear-gradient(90deg,${GREEN_DARK},${GREEN})` }} />
+          <div style={{ padding: '20px' }}>
+            <form onSubmit={handleSaveCompany}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.companyName')} *</label>
+                  <input value={companyName} onChange={e => setCompanyName(e.target.value)} required style={fieldStyle} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={labelStyle}>{t('companySettings.contactEmail')}</label>
+                    <input type="email" value={companyEmail} onChange={e => setCompanyEmail(e.target.value)} placeholder="contact@company.com" style={fieldStyle} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>{t('companySettings.contactPhone')}</label>
+                    <input value={companyPhone} onChange={e => setCompanyPhone(e.target.value)} placeholder="+1234567890" style={fieldStyle} />
+                  </div>
+                </div>
               </div>
-              <div>
-                <label style={labelStyle}>{t('companySettings.contactPhone')}</label>
-                <input value={companyPhone} onChange={e => setCompanyPhone(e.target.value)} placeholder="+1234567890" style={fieldStyle} />
-              </div>
-            </div>
-          </div>
-          <button type="submit" disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '9px', border: 'none', background: `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: "'Poppins',sans-serif" }}>
-            <Save size={14} />{saving ? t('companySettings.saving') : t('companySettings.saveChanges')}
-          </button>
-        </form>
-      </Panel>
-
-      {/* WhatsApp Panel */}
-      <Panel icon={<MessageCircle size={15} color="#25d366" />} title={t('companySettings.whatsappTitle', { defaultValue: 'WhatsApp Chatbot' })}>
-        {waSettings && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
-            <CheckCircle2 size={14} color="#16a34a" />
-            <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 600 }}>
-              {t('companySettings.whatsappActive', { defaultValue: 'Número activo:' })} {waSettings.whatsapp_number}
-            </span>
-          </div>
-        )}
-        <form onSubmit={handleSaveWhatsApp}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-            <div>
-              <label style={labelStyle}>{t('companySettings.whatsappNumber', { defaultValue: 'Número de WhatsApp (formato internacional)' })}</label>
-              <input
-                value={waNumber}
-                onChange={e => setWaNumber(e.target.value)}
-                placeholder="+15551234567"
-                required
-                style={fieldStyle}
-              />
-              <p style={{ margin: '5px 0 0', fontSize: '11px', color: '#9ca3af' }}>
-                {t('companySettings.whatsappHint', { defaultValue: 'Número aprobado en Twilio para WhatsApp Business. Ej: +15551234567' })}
-              </p>
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-              <input type="checkbox" checked={waActive} onChange={e => setWaActive(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: '#25d366' }} />
-              <div>
-                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.whatsappEnabled', { defaultValue: 'Chatbot activo' })}</p>
-                <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.whatsappEnabledDesc', { defaultValue: 'El webhook responderá mensajes para este número' })}</p>
-              </div>
-            </label>
-          </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button type="submit" disabled={waSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '9px', border: 'none', background: '#25d366', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: waSaving ? 'not-allowed' : 'pointer', opacity: waSaving ? 0.7 : 1, fontFamily: "'Poppins',sans-serif" }}>
-              <Save size={14} />{waSaving ? t('companySettings.saving') : t('companySettings.saveChanges')}
-            </button>
-            {waSettings && (
-              <button type="button" onClick={handleDeleteWhatsApp} disabled={waDeleting} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', borderRadius: '9px', border: '1.5px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '13px', fontWeight: 600, cursor: waDeleting ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
-                <Trash2 size={14} />{t('common.delete')}
+              <button type="submit" disabled={saving} style={saveBtn(saving, '', '')}>
+                <Save size={14} />{saving ? t('companySettings.saving') : t('companySettings.saveChanges')}
               </button>
-            )}
+            </form>
           </div>
-        </form>
-      </Panel>
+        </div>
+      )}
 
-      <Panel icon={<Settings size={15} color={GREEN} />} title={t('companySettings.configurationParameters')}>
-        <form onSubmit={handleSaveConfig}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-            <div>
-              <label style={labelStyle}>{t('companySettings.weeklyHours')} *</label>
-              <input type="number" min="0" step="0.01" value={weeklyHours} onChange={e => setWeeklyHours(e.target.value)} required style={fieldStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>{t('companySettings.minHours')} *</label>
-              <input type="number" min="0" step="0.01" value={minHours} onChange={e => setMinHours(e.target.value)} required style={fieldStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>{t('companySettings.minutesBefore')} *</label>
-              <input type="number" min="0" step="1" value={minutesBefore} onChange={e => setMinutesBefore(e.target.value)} required style={fieldStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>{t('companySettings.horasEntreEventos')} *</label>
-              <input type="number" min="0" step="1" value={horasEntreEventos} onChange={e => setHorasEntreEventos(e.target.value)} required style={fieldStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>{t('companySettings.daysToReject')} *</label>
-              <input type="number" min="0" step="1" value={daysToReject} onChange={e => setDaysToReject(e.target.value)} required style={fieldStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>{t('companySettings.overtimeMultiplier')} *</label>
-              <input type="number" min="0" step="0.01" value={overtimeMultiplier} onChange={e => setOvertimeMultiplier(e.target.value)} required style={fieldStyle} />
-            </div>
-            {/* Week start/end day selectors */}
-            <div>
-              <label style={labelStyle}>{t('companySettings.weekStartDay') || 'Día inicio de semana'} *</label>
-              <select value={weekStartDay} onChange={e => setWeekStartDay(e.target.value)} style={fieldStyle}>
-                {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(d => (
-                  <option key={d} value={d}>{d === 'monday' ? (t('days.monday') || 'Lunes') : d === 'tuesday' ? (t('days.tuesday') || 'Martes') : d === 'wednesday' ? (t('days.wednesday') || 'Miércoles') : d === 'thursday' ? (t('days.thursday') || 'Jueves') : d === 'friday' ? (t('days.friday') || 'Viernes') : d === 'saturday' ? (t('days.saturday') || 'Sábado') : (t('days.sunday') || 'Domingo')}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>{t('companySettings.weekEndDay') || 'Día fin de semana'} *</label>
-              <select value={weekEndDay} onChange={e => setWeekEndDay(e.target.value)} style={fieldStyle}>
-                {['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(d => (
-                  <option key={d} value={d}>{d === 'monday' ? (t('days.monday') || 'Lunes') : d === 'tuesday' ? (t('days.tuesday') || 'Martes') : d === 'wednesday' ? (t('days.wednesday') || 'Miércoles') : d === 'thursday' ? (t('days.thursday') || 'Jueves') : d === 'friday' ? (t('days.friday') || 'Viernes') : d === 'saturday' ? (t('days.saturday') || 'Sábado') : (t('days.sunday') || 'Domingo')}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {/* Toggle params */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-              <input type="checkbox" checked={geoEnabled} onChange={e => setGeoEnabled(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: GREEN }} />
-              <div>
-                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.geolocationEnabled') || 'Geolocation enabled'}</p>
-                <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.geolocationDesc') || 'Validate employee location on clock-in'}</p>
+      {/* Tab: WhatsApp */}
+      {activeTab === 'whatsapp' && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ height: '2px', background: 'linear-gradient(90deg,#128c7e,#25d366)' }} />
+          <div style={{ padding: '20px' }}>
+            {waSettings && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
+                <CheckCircle2 size={15} color="#16a34a" />
+                <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 600 }}>
+                  {t('companySettings.whatsappActive')} {waSettings.whatsapp_number}
+                </span>
               </div>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-              <input type="checkbox" checked={adminCanClockIn} onChange={e => setAdminCanClockIn(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: GREEN }} />
-              <div>
-                <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.adminClockIn') || 'Admin bulk clock-in'}</p>
-                <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.adminClockInDesc') || 'Allow admin/coordinator to register clock-in for all event employees'}</p>
+            )}
+            <form onSubmit={handleSaveWhatsApp}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.whatsappNumber')}</label>
+                  <input
+                    value={waNumber}
+                    onChange={e => setWaNumber(e.target.value)}
+                    placeholder="+15551234567"
+                    required
+                    style={fieldStyle}
+                  />
+                  <p style={{ margin: '5px 0 0', fontSize: '11px', color: '#9ca3af' }}>
+                    {t('companySettings.whatsappHint')}
+                  </p>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                  <input type="checkbox" checked={waActive} onChange={e => setWaActive(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: '#25d366' }} />
+                  <div>
+                    <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.whatsappEnabled')}</p>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.whatsappEnabledDesc')}</p>
+                  </div>
+                </label>
               </div>
-            </label>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button type="submit" disabled={waSaving} style={saveBtn(waSaving, '', '', '#25d366')}>
+                  <Save size={14} />{waSaving ? t('companySettings.saving') : t('companySettings.saveChanges')}
+                </button>
+                {waSettings && (
+                  <button type="button" onClick={handleDeleteWhatsApp} disabled={waDeleting} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', borderRadius: '9px', border: '1.5px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: '13px', fontWeight: 600, cursor: waDeleting ? 'not-allowed' : 'pointer', fontFamily: "'Poppins',sans-serif" }}>
+                    <Trash2 size={14} />{t('common.delete')}
+                  </button>
+                )}
+              </div>
+            </form>
           </div>
-          <button type="submit" disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '9px', border: 'none', background: `linear-gradient(135deg,${GREEN_DARK},${GREEN})`, color: '#fff', fontSize: '13px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: "'Poppins',sans-serif" }}>
-            <Save size={14} />{saving ? t('companySettings.saving') : t('companySettings.saveChanges')}
-          </button>
-        </form>
-      </Panel>
+        </div>
+      )}
+
+      {/* Tab: Parámetros */}
+      {activeTab === 'parametros' && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '1rem', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ height: '2px', background: `linear-gradient(90deg,${GREEN_DARK},${GREEN})` }} />
+          <div style={{ padding: '20px' }}>
+            <form onSubmit={handleSaveConfig}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.weeklyHours')} *</label>
+                  <input type="number" min="0" step="0.01" value={weeklyHours} onChange={e => setWeeklyHours(e.target.value)} required style={fieldStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.minHours')} *</label>
+                  <input type="number" min="0" step="0.01" value={minHours} onChange={e => setMinHours(e.target.value)} required style={fieldStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.minutesBefore')} *</label>
+                  <input type="number" min="0" step="1" value={minutesBefore} onChange={e => setMinutesBefore(e.target.value)} required style={fieldStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.horasEntreEventos')} *</label>
+                  <input type="number" min="0" step="1" value={horasEntreEventos} onChange={e => setHorasEntreEventos(e.target.value)} required style={fieldStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.daysToReject')} *</label>
+                  <input type="number" min="0" step="1" value={daysToReject} onChange={e => setDaysToReject(e.target.value)} required style={fieldStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.overtimeMultiplier')} *</label>
+                  <input type="number" min="0" step="0.01" value={overtimeMultiplier} onChange={e => setOvertimeMultiplier(e.target.value)} required style={fieldStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.weekStartDay') || 'Día inicio de semana'} *</label>
+                  <select value={weekStartDay} onChange={e => setWeekStartDay(e.target.value)} style={fieldStyle}>
+                    {DAYS.map(d => <option key={d} value={d}>{dayLabel(d, t)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>{t('companySettings.weekEndDay') || 'Día fin de semana'} *</label>
+                  <select value={weekEndDay} onChange={e => setWeekEndDay(e.target.value)} style={fieldStyle}>
+                    {DAYS.map(d => <option key={d} value={d}>{dayLabel(d, t)}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                  <input type="checkbox" checked={geoEnabled} onChange={e => setGeoEnabled(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: GREEN }} />
+                  <div>
+                    <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.geolocationEnabled') || 'Geolocation enabled'}</p>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.geolocationDesc') || 'Validate employee location on clock-in'}</p>
+                  </div>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                  <input type="checkbox" checked={adminCanClockIn} onChange={e => setAdminCanClockIn(e.target.checked)} style={{ width: '16px', height: '16px', accentColor: GREEN }} />
+                  <div>
+                    <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#111827' }}>{t('companySettings.adminClockIn') || 'Admin bulk clock-in'}</p>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#9ca3af' }}>{t('companySettings.adminClockInDesc') || 'Allow admin/coordinator to register clock-in for all event employees'}</p>
+                  </div>
+                </label>
+              </div>
+              <button type="submit" disabled={saving} style={saveBtn(saving, '', '')}>
+                <Save size={14} />{saving ? t('companySettings.saving') : t('companySettings.saveChanges')}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
