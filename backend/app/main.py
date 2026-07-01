@@ -106,6 +106,7 @@ app.add_middleware(
         "https://api.kalirio.kalimasgroup.net",
         "http://kalirio.kalimasgroup.net",
         "http://api.kalirio.kalimasgroup.net",
+        "https://suite.kalimasgroup.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],

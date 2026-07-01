@@ -171,7 +171,7 @@ export default function UsersPage() {
     <button onClick={onClick} disabled={disabled}
       style={{
         display: 'flex', alignItems: 'center', gap: '5px',
-        padding: small ? '5px 12px' : '8px 16px', borderRadius: '8px', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+        borderRadius: '8px', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
         fontSize: '12px', fontWeight: 700, fontFamily: "'Poppins',sans-serif", transition: 'all 0.15s',
         opacity: disabled ? 0.6 : 1,
         background: danger ? '#fef2f2' : outline ? '#fff' : `linear-gradient(135deg,${GREEN_DARK},${GREEN})`,
@@ -439,7 +439,7 @@ export default function UsersPage() {
                 const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(page - 2, totalPages - 4)) + i
                 return (
                   <button key={n} onClick={() => setPage(n)}
-                    style={{ width: '30px', height: '30px', borderRadius: '7px', border: 'none', background: page === n ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#fff', border: page === n ? 'none' : '1.5px solid #e5e7eb', color: page === n ? '#fff' : '#374151', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
+                    style={{ width: '30px', height: '30px', borderRadius: '7px', background: page === n ? `linear-gradient(135deg,${GREEN_DARK},${GREEN})` : '#fff', border: page === n ? 'none' : '1.5px solid #e5e7eb', color: page === n ? '#fff' : '#374151', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
                     {n}
                   </button>
                 )
@@ -465,7 +465,6 @@ export default function UsersPage() {
           <div style={{ position: 'relative', background: '#fff', borderRadius: '16px', padding: '24px', maxWidth: '500px', width: '100%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#111827' }}>Perfil del Empleado</h3>
-              <button onClick={() => setViewProfile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '4px' }}><X size={18} /></button>
             </div>
 
             {/* Info básica */}
