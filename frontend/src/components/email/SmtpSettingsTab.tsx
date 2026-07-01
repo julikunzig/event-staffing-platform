@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Mail, Send, Clock, Info, ShieldCheck, ShieldAlert } from "lucide-react";
-import { EMPTY_EMAIL_SETTINGS, EmailSettings } from "@/types/email";
+import { EMPTY_EMAIL_SETTINGS } from "@/types/email";
+import type { EmailSettings } from "@/types/email";
 
 interface Props {
   companyId: number;

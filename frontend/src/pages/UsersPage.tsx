@@ -171,7 +171,7 @@ export default function UsersPage() {
     <button onClick={onClick} disabled={disabled}
       style={{
         display: 'flex', alignItems: 'center', gap: '5px',
-        borderRadius: '8px', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+        borderRadius: '8px', cursor: disabled ? 'not-allowed' : 'pointer',
         fontSize: '12px', fontWeight: 700, fontFamily: "'Poppins',sans-serif", transition: 'all 0.15s',
         opacity: disabled ? 0.6 : 1,
         background: danger ? '#fef2f2' : outline ? '#fff' : `linear-gradient(135deg,${GREEN_DARK},${GREEN})`,

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import { FileText, Info, Plus, Save, Send, Trash2, Wand2, Eye } from "lucide-react";
-import { DEFAULT_VARIABLES, EMPTY_TEMPLATE, EmailTemplate } from "@/types/email";
+import { DEFAULT_VARIABLES, EMPTY_TEMPLATE } from "@/types/email";
+import type { EmailTemplate } from "@/types/email";
 
 interface Props {
   companyId: number;

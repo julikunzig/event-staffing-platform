@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import { History, RefreshCw } from "lucide-react";
-import { EmailDeliveryLog, EmailHistoryFilters } from "@/types/email";
+import type { EmailDeliveryLog, EmailHistoryFilters } from "@/types/email";
 
 interface Props {
   companyId: number;
