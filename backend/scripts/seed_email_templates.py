@@ -564,6 +564,96 @@ Fecha de pago: {{payment_date}}
 Ingresa a la plataforma para revisar el detalle.
 """,
     },
+    {
+        "code": "INVITATION_REMINDER",
+        "name": "Recordatorio de invitación pendiente",
+        "subject": "Recordatorio: tienes una invitación pendiente — {{event_name}}",
+        "variables": [
+            "event_name",
+            "event_date",
+            "start_time",
+            "address",
+            "city",
+            "state",
+            "zip_code",
+            "role_name",
+            "dress_code",
+        ],
+        "html_body": """
+<h2>Tienes una invitación pendiente de respuesta</h2>
+
+<p>Te recordamos que aún no has respondido la invitación para trabajar en el siguiente evento:</p>
+
+<h3>Detalles del evento:</h3>
+<ul>
+  <li><strong>Evento:</strong> {{event_name}}</li>
+  <li><strong>Fecha:</strong> {{event_date}}</li>
+  <li><strong>Hora:</strong> {{start_time}}</li>
+  <li><strong>Ubicación:</strong> {{address}}, {{city}}, {{state}} {{zip_code}}</li>
+  <li><strong>Posición:</strong> {{role_name}}</li>
+  <li><strong>Código de vestimenta:</strong> {{dress_code}}</li>
+</ul>
+
+<p>Por favor ingresa al sistema para aceptar o rechazar esta invitación a la brevedad posible.</p>
+""",
+        "text_body": """
+Recordatorio: invitación pendiente de respuesta
+
+Evento: {{event_name}}
+Fecha: {{event_date}}
+Hora: {{start_time}}
+Ubicación: {{address}}, {{city}}, {{state}} {{zip_code}}
+Posición: {{role_name}}
+Código de vestimenta: {{dress_code}}
+
+Ingresa al sistema para aceptar o rechazar esta invitación.
+""",
+    },
+    {
+        "code": "SHIFT_REMINDER",
+        "name": "Recordatorio de turno mañana",
+        "subject": "Recordatorio: tienes turno mañana — {{event_name}}",
+        "variables": [
+            "event_name",
+            "event_date",
+            "start_time",
+            "address",
+            "city",
+            "state",
+            "zip_code",
+            "role_name",
+            "dress_code",
+        ],
+        "html_body": """
+<h2>Recordatorio: tienes un turno mañana</h2>
+
+<p>Te recordamos que mañana tienes un turno asignado. ¡Prepárate con anticipación!</p>
+
+<h3>Detalles del evento:</h3>
+<ul>
+  <li><strong>Evento:</strong> {{event_name}}</li>
+  <li><strong>Fecha:</strong> {{event_date}}</li>
+  <li><strong>Hora de inicio:</strong> {{start_time}}</li>
+  <li><strong>Ubicación:</strong> {{address}}, {{city}}, {{state}} {{zip_code}}</li>
+  <li><strong>Posición:</strong> {{role_name}}</li>
+  <li><strong>Código de vestimenta:</strong> {{dress_code}}</li>
+</ul>
+
+<p>Recuerda registrar tu entrada (clock-in) al llegar al evento.</p>
+""",
+        "text_body": """
+Recordatorio: tienes un turno mañana
+
+Evento: {{event_name}}
+Fecha: {{event_date}}
+Hora de inicio: {{start_time}}
+Ubicación: {{address}}, {{city}}, {{state}} {{zip_code}}
+Posición: {{role_name}}
+Código de vestimenta: {{dress_code}}
+
+Recuerda registrar tu entrada (clock-in) al llegar al evento.
+""",
+    },
 ]
 
 

@@ -12,6 +12,10 @@ from app.services.email_queue_worker import (
     start_email_queue_worker,
     stop_email_queue_worker,
 )
+from app.services.reminder_scheduler import (
+    start_reminder_scheduler,
+    stop_reminder_scheduler,
+)
 
 from app.routers import (
     auth,
@@ -68,6 +72,11 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ No se pudo iniciar email queue worker: {exc}")
 
     try:
+        start_reminder_scheduler()
+    except Exception as exc:
+        print(f"⚠️ No se pudo iniciar reminder scheduler: {exc}")
+
+    try:
         yield
     finally:
         try:
@@ -75,6 +84,11 @@ async def lifespan(app: FastAPI):
             print("✅ Email queue worker detenido correctamente")
         except Exception as exc:
             print(f"⚠️ No se pudo detener email queue worker: {exc}")
+
+        try:
+            stop_reminder_scheduler()
+        except Exception as exc:
+            print(f"⚠️ No se pudo detener reminder scheduler: {exc}")
 
 
 app = FastAPI(
